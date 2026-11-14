@@ -63,6 +63,7 @@ void DragBar::mouseDoubleClick (const juce::MouseEvent&)
 
 bool DragBar::isInterestedInFileDrag (const juce::StringArray& files)
 {
+    if (! acceptDrops) return false;
     for (auto& f : files) for (auto& e : audioExtensions()) if (f.endsWithIgnoreCase (e)) return true;
     return false;
 }

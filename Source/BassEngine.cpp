@@ -116,15 +116,24 @@ void Synth::setParams (const SoundParams& np)
     driveG = 1.0f + juce::jlimit (0.0f, 1.0f, p.drive) * 6.0f;
     driveNorm = 1.0f / std::tanh (driveG);
     {
-        // misma energía con más o menos DRIVE: así nunca suena más fuerte, solo más rico
-        double a = 0, b = 0;
-        for (int i = 0; i < 256; ++i)
+        // DRIVE nunca suena más fuerte: se compensa con la forma de onda elegida para que ni la energía
+        // ni la fundamental (lo que queda tras el filtro) suban; solo cambia el color.
+        double a = 0, b = 0, fr = 0, fi = 0, gr = 0, gi = 0;
+        constexpr int N = 512;
+        for (int i = 0; i < N; ++i)
         {
-            const double x = std::sin (2.0 * kPi * (i + 0.5) / 256.0);
+            const double ph = (i + 0.5) / N;
+            double x;
+            if (p.shape == 1) { double t = ph + 0.25; t -= std::floor (t); x = 1.0 - 4.0 * std::abs (t - 0.5); }
+            else if (p.shape == 2) { double t = ph + 0.5; t -= std::floor (t); x = 2.0 * t - 1.0; }
+            else x = std::sin (2.0 * kPi * ph);
             const double y = std::tanh (driveG * x) * driveNorm;
             a += x * x; b += y * y;
+            fr += x * std::cos (2.0 * kPi * ph); fi += x * std::sin (2.0 * kPi * ph);
+            gr += y * std::cos (2.0 * kPi * ph); gi += y * std::sin (2.0 * kPi * ph);
         }
-        driveComp = (float) std::sqrt (a / b);
+        const double fx = std::sqrt (fr * fr + fi * fi), fy = std::sqrt (gr * gr + gi * gi);
+        driveComp = (float) juce::jmin (std::sqrt (a / b), fy > 1.0e-9 ? fx / fy : 1.0);
     }
 }
 

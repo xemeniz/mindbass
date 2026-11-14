@@ -1,0 +1,17 @@
+MIND BASS · Dj Nané — instalar en Mac (Apple Silicon o Intel)
+
+1) Abre la app Terminal (Cmd + Espacio, escribe "Terminal", Enter).
+2) Pega este bloque entero y pulsa Enter (si estás en la carpeta Descargas):
+
+cd ~/Downloads/"MIND BASS" && mkdir -p ~/Library/Audio/Plug-Ins/VST3 ~/Library/Audio/Plug-Ins/Components && rm -rf ~/Library/Audio/Plug-Ins/VST3/"MIND BASS.vst3" ~/Library/Audio/Plug-Ins/Components/"MIND BASS.component" /Applications/"MIND BASS.app" && cp -R "MIND BASS.vst3" ~/Library/Audio/Plug-Ins/VST3/ && cp -R "MIND BASS.component" ~/Library/Audio/Plug-Ins/Components/ && cp -R "MIND BASS.app" /Applications/ && xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"MIND BASS.vst3" ~/Library/Audio/Plug-Ins/Components/"MIND BASS.component" /Applications/"MIND BASS.app" && killall -9 AudioComponentRegistrar 2>/dev/null; echo "INSTALADO OK"
+
+3) En Ableton: Preferencias > Plug-ins > "Rescan".
+4) En el navegador de Ableton: Plug-ins > Instruments > Dj Nane > MIND BASS. Ponlo en una pista MIDI.
+
+Cómo se usa:
+ a) Dale al play de Ableton: toca su línea de 4 compases a tiempo (o pulsa PLAY / espacio dentro del plugin).
+ b) KEY y MIN/MAJ: la tonalidad. El bajo va en la octava 0 de Ableton, mono.
+ c) GENERATE: línea nueva (A A' A A''). VARIATION: solo cambia los compases 2 y 4. DENSITY, GATE, MOVE y KICK la retocan.
+ d) Clic en la rejilla: poner, mover o quitar notas (quedan bloqueadas). Shift+clic: bloquear o desbloquear.
+ e) Si le mandas notas MIDI, las toca y su patrón se calla.
+ f) Arrastra la barra de abajo a Ableton: MIDI o audio (se elige en Settings).

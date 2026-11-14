@@ -6,7 +6,8 @@
 // MIND BASS: instrumento. Toca su propio patrón de 4 compases sincronizado con Ableton (o con PLAY en la app),
 // y también las notas MIDI que le lleguen (si llegan notas, el patrón propio se calla). El MIDI o el audio se arrastran a Ableton.
 class MBProcessor : public juce::AudioProcessor,
-                    private juce::AudioProcessorValueTreeState::Listener
+                    private juce::AudioProcessorValueTreeState::Listener,
+                    private juce::AsyncUpdater
 {
 public:
     MBProcessor();
@@ -63,7 +64,12 @@ public:
 
 private:
     struct Events { std::vector<mbass::Event> ev; };
-    void parameterChanged (const juce::String&, float) override { rebuild(); }
+    // KEY, SWING y GATE rehacen los eventos en el hilo de mensajes (la automatización llega por el hilo de audio)
+    void parameterChanged (const juce::String&, float) override
+    {
+        if (juce::MessageManager::existsAndIsCurrentThread()) rebuild(); else triggerAsyncUpdate();
+    }
+    void handleAsyncUpdate() override { rebuild(); }
     void rebuild();                     // patrón + swing + gate + key -> eventos para el audio
     void loadGlobal();
     mbass::SoundParams sound() const;

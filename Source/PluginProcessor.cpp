@@ -2,7 +2,6 @@
 #include "PluginEditor.h"
 
 using APVTS = juce::AudioProcessorValueTreeState;
-static const char* kParamIds[] = { "key", "minor", "swing", "gate", "density", "move", "kick", "shape", "drive", "mid", "filter", "decay", "sbpm", "auto" };
 
 APVTS::ParameterLayout MBProcessor::layout()
 {
@@ -41,6 +40,7 @@ MBProcessor::MBProcessor()
 
 MBProcessor::~MBProcessor()
 {
+    cancelPendingUpdate();
     for (auto id : { "key", "swing", "gate" }) apvts.removeParameterListener (id, this);
 }
 
@@ -292,8 +292,7 @@ juce::File MBProcessor::exportClip (bool audio)
     dir.createDirectory();
     // nombre único: Ableton reutiliza el clip si el archivo se llama igual
     const auto stamp = juce::Time::getCurrentTime().formatted ("%H%M%S");
-    auto f = dir.getChildFile (clipName() + " " + stamp + (audio ? ".wav" : ".mid"));
-    f.deleteFile();
+    auto f = dir.getNonexistentChildFile (clipName() + " " + stamp, audio ? ".wav" : ".mid", false);
     const int key = (int) pKey->load();
     if (! audio)
     {
@@ -306,11 +305,10 @@ juce::File MBProcessor::exportClip (bool audio)
     const double rate = sr > 8000.0 ? sr : 48000.0;
     mbass::renderAudio (buf, rate, pattern, key, pSwing->load(), pGate->load(), currentBpm(), sound(), pKick->load());
     juce::WavAudioFormat wav;
-    std::unique_ptr<juce::OutputStream> os (new juce::FileOutputStream (f));
-    if (! static_cast<juce::FileOutputStream*> (os.get())->openedOk()) return {};
-    auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (rate).withNumChannels (2).withBitsPerSample (24);
-    auto w = wav.createWriterFor (os, opts);
-    if (w == nullptr) return {};
+    auto* os = new juce::FileOutputStream (f);
+    if (! os->openedOk()) { delete os; return {}; }
+    std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os, rate, 2, 24, {}, 0));
+    if (w == nullptr) { delete os; return {}; }
     w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
     w.reset();
     return f;

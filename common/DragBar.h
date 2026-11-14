@@ -20,6 +20,7 @@ public:
     std::function<void (const juce::File&)> onDrop;       // archivo soltado encima
     juce::String label { "DRAG TO ABLETON" }, dropLabel { "DROP TO LOAD" };
     bool enabled = false;
+    bool acceptDrops = true;                              // false en instrumentos: no se suelta nada encima
     juce::Typeface::Ptr font;                             // Nunito (la misma de la interfaz)
 
     void paint (juce::Graphics&) override;
