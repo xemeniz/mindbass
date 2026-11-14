@@ -27,10 +27,10 @@ ok((await sent()).some(([e]) => e === 'mbReady'), 'avisa al plugin al arrancar (
 // =============== 1) GENERADOR: 200 generaciones contra el análisis ===============
 console.log('Generador BCN SUB');
 const G = await page.evaluate(() => {
-  const D = { density: .7, move: .4, kick: .45, minor: true };
+  const D = { density: .7, move: .4, kick: .45, scale: 0 };
   const res = { perBarA: [], perBarV: [], runsBad: 0, gapsBad: 0, tonic: 0, notes: 0, rowsBad: 0, bar13Same: 0, a1Diff: 0, a2Diff: 0, oneFree: 0,
-    first0: 0, varKeep: 0, varChange: 0, quartersK8: 0, oneK0: 0, maj3: 0, min3InMaj: 0, lenOk: 0, d0: [], d1: [], lockOk: 0 };
-  const allowed = new Set([12, 10, 7, 5, 3, 4, 2, 1, 0, -1, -2, -5]);
+    first0: 0, scaleBad: 0, phr1: 0, dor9: 0, phrNotes: 0, dorNotes: 0, varKeep: 0, varChange: 0, quartersK8: 0, oneK0: 0, maj3: 0, min3InMaj: 0, lenOk: 0, d0: [], d1: [], lockOk: 0 };
+  const allowed = new Set(SCALES[0].rows);
   const on = (st, b) => st.slice(b * 16, b * 16 + 16).map(s => s[0]);
   for (let n = 0; n < 200; n++) {
     const sa = 1000 + n * 7919, sv = 77 + n * 104729;
@@ -59,7 +59,10 @@ const G = await page.evaluate(() => {
     const k8 = MB.generate(sa, sv, { ...D, kick: .8 }); if ([0, 4, 8, 12].every(q => [0, 1, 2, 3].every(b => !k8[b * 16 + q][0]))) res.quartersK8++;
     const k0 = MB.generate(sa, sv, { ...D, kick: 0 }); if (k0[0][0] && k0[0][1] === 0) res.oneK0++;
     // mayor: 3ª mayor, nunca menor
-    const mj = MB.generate(sa, sv, { ...D, minor: false, move: 1 }); mj.forEach(s => { if (s[0] && s[1] === 4) res.maj3++; if (s[0] && s[1] === 3) res.min3InMaj++; });
+    const mj = MB.generate(sa, sv, { ...D, scale: 1, move: 1 }); mj.forEach(s => { if (s[0] && s[1] === 4) res.maj3++; if (s[0] && s[1] === 3) res.min3InMaj++; });
+    // frigia y dórica: todas las notas en sus filas y con su color (b2 en frigia, 6ª en dórica)
+    for (const sc of [1, 2, 3]) { const g = MB.generate(sa, sv, { ...D, scale: sc, move: .6 }), rows = new Set(SCALES[sc].rows);
+      g.forEach(s => { if (s[0]) { if (!rows.has(s[1])) res.scaleBad++; if (sc === 2) { res.phrNotes++; if (s[1] === 1) res.phr1++; } if (sc === 3) { res.dorNotes++; if (s[1] === 9) res.dor9++; } } }); }
     if (n < 40) {
       res.d0.push(on(MB.generate(sa, sv, { ...D, density: 0 }), 0).reduce((a, x) => a + x, 0));
       res.d1.push(on(MB.generate(sa, sv, { ...D, density: 1 }), 0).reduce((a, x) => a + x, 0));
@@ -89,22 +92,25 @@ ok(free1 > 0.12 && free1 < 0.34, 'KICK 45 %: el 1 queda libre en el ' + (free1 *
 ok(G.quartersK8 === 200, 'KICK > 50 %: las negras quedan libres siempre');
 ok(G.oneK0 === 200, 'KICK 0: siempre toca en el 1');
 ok(G.maj3 > 0 && G.min3InMaj === 0, 'en mayor usa la 3ª mayor (' + G.maj3 + ') y nunca la menor');
+ok(G.scaleBad === 0, 'MAJOR, PHRYGIAN y DORIAN: todas las notas en las filas de su escala');
+ok(G.phr1 / G.phrNotes > 0.08, 'PHRYGIAN suena frigio: b2 en el ' + (G.phr1 / G.phrNotes * 100).toFixed(1) + ' % de las notas');
+ok(G.dor9 / G.dorNotes > 0.02, 'DORIAN suena dórico: 6ª mayor en el ' + (G.dor9 / G.dorNotes * 100).toFixed(1) + ' % de las notas');
 ok(G.d0.every(x => x === 4) && G.d1.every(x => x === 14), 'DENSITY 0 = 4 notas, 100 % = 14');
 ok(G.lockOk === 200, 'los pasos bloqueados (nota y silencio) se respetan al generar');
 
 // =============== 2) INTERFAZ ===============
 console.log('Interfaz');
 await fire('mbSettings', { theme: 'dark', drag: 'midi', standalone: false });
-const params = { key: 5, minor: true, swing: 0.57, gate: 0.7, density: 0.7, move: 0.4, kick: 0.45, shape: 0, drive: 0.3, mid: 0.15, filter: 0.4, decay: 0.9, sbpm: 128, auto: true };
+const params = { key: 5, scale: 0, swing: 0.57, gate: 0.7, density: 0.7, move: 0.4, kick: 0.45, shape: 0, drive: 0.3, mid: 0.15, filter: 0.4, decay: 0.9, sbpm: 128 };
 await fire('mbState', { p: params, play: 0, pos: 0, bpm: 126, midiIn: false });
 const steps0 = await page.evaluate(() => MB.generate(4242, 99, { density: .7, move: .4, kick: .45, minor: true }));
 await fire('mbPattern', { steps: steps0, seedA: 4242, seedV: 99 });
 ok((await page.textContent('#keyt')) === 'F', 'KEY F');
-ok((await page.locator('#scale button.on').textContent()) === 'MIN', 'escala MIN');
+ok((await page.textContent('#scalet')) === 'MINOR', 'escala MINOR');
 ok((await page.textContent('#bpmt')) === '126', 'BPM de Ableton');
 ok((await page.textContent('#swt')) === '57%', 'SWING 57 %');
-ok((await page.locator('#style button.on').textContent()) === 'BCN SUB', 'estilo BCN SUB');
-ok((await page.textContent('.stylep .hint')).includes('LDN ROLLER and IBZ BOUNCE'), 'avisa de LDN ROLLER e IBZ BOUNCE');
+ok((await page.textContent('#stylet')) === 'BCN SUB', 'estilo BCN SUB en lista');
+ok(!(await page.textContent('body')).includes('LDN ROLLER') && !(await page.textContent('body')).includes('from Ableton'), 'sin los textos de LDN ROLLER / IBZ BOUNCE ni "from Ableton"');
 ok((await page.textContent('#pinfo')).startsWith('F MIN · ' + steps0.filter(s => s[0]).length + ' NOTES'), 'resumen del patrón (' + await page.textContent('#pinfo') + ')');
 ok((await page.locator('#k_filter').locator('..').locator('.kv').textContent()) === '244 Hz', 'FILTER 40 % = 244 Hz');
 ok((await page.textContent('.logo b')) === 'MIND BASS' && (await page.textContent('.logo small')).toUpperCase() === 'BY DJ NANÉ', 'logo MIND BASS / BY DJ NANÉ');
@@ -119,8 +125,13 @@ await page.screenshot({ path: out + '-dark.png' });
 
 // tamaños iguales por fila
 const sizes = async sel => page.$$eval(sel, els => els.map(e => Math.round(e.getBoundingClientRect().width) + 'x' + Math.round(e.getBoundingClientRect().height)));
-for (const sel of ['.genp .col button', '#shape button', 'header .val', '#scale button', '.kn']) { const s = await sizes(sel); ok(new Set(s).size === 1, 'mismo tamaño en ' + sel + ' (' + s[0] + ')'); }
-ok(JSON.stringify(await sizes('.genp .col button')) === JSON.stringify(await sizes('#shape button')), 'columnas de GENERATE y SOUND iguales');
+for (const sel of ['.genp .col button', '.sndp .col button', 'header .val', 'header .ico', '.kn']) { const s = await sizes(sel); ok(new Set(s).size === 1, 'mismo tamaño en ' + sel + ' (' + s[0] + ')'); }
+ok(JSON.stringify(await sizes('.genp .col button')) === JSON.stringify(await sizes('.sndp .col button')), 'columnas de GENERATE y SOUND iguales');
+// SWING: la caja no se mueve al cambiar el valor
+const swPos = async () => page.evaluate(() => { const b = document.querySelector('#swv').getBoundingClientRect(), l = document.querySelector('#swv small').getBoundingClientRect(); return [b.left, b.width, l.left].map(Math.round).join(); });
+const sw0 = await swPos();
+for (const v of [0.575, 0.6, 0.705, 0.5]) { await fire('mbState', { p: { ...params, swing: v } }); ok(await swPos() === sw0, 'SWING ' + (v * 100) + ' %: la caja y su etiqueta no se mueven'); }
+await fire('mbState', { p: params });
 
 // GENERATE + Undo
 await clear();
@@ -200,19 +211,31 @@ ok(s.some(([e]) => e === 'mbPattern'), 'y manda el patrón nuevo');
 // KEY y escala
 await clear();
 await page.click('#keyv');
-ok(await page.isVisible('#keypop'), 'KEY abre las 12 notas');
+ok(await page.isVisible('#keypop') && (await page.locator('#keypop button').count()) === 12, 'KEY abre la lista de 12 tonalidades');
+const blues = await page.$$eval('#keypop button.blue', b => b.map(x => x.querySelector('span').textContent + ':' + (x.classList.contains('soft') ? 's' : 'f')));
+ok(JSON.stringify(blues.sort()) === JSON.stringify(['A#:s', 'B:f', 'D:f', 'F#:s', 'F:f']), 'en azul las de Mindshake: B, F y D fuertes; A# y F# suaves (' + blues + ')');
+ok((await page.textContent('#keypop button:nth-child(12) em')) === '5 OF 12', 'B: 5 de 12 temas');
+await page.screenshot({ path: out + '-key.png' });
 await page.click('#keypop button:nth-child(10)');   // A
 s = await sent();
 ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'key' && o.v === 9), 'elegir A manda key=9');
 ok((await page.textContent('#keyt')) === 'A' && await page.isHidden('#keypop'), 'la caja enseña A y se cierra');
-await page.evaluate(() => { PAT.steps[40] = [1, 3, .8, 1, 0]; });
+await page.evaluate(() => { PAT.steps[40] = [1, 3, .8, 1, 0]; PAT.steps[41] = [1, -1, .8, 1, 0]; });
+await page.click('#scalev');
+ok(JSON.stringify(await page.$$eval('#keypop button span', b => b.map(x => x.textContent))) === JSON.stringify(['MINOR', 'MAJOR', 'PHRYGIAN', 'DORIAN']), 'SCALE: MINOR, MAJOR, PHRYGIAN y DORIAN');
 await clear();
-await page.click('#scale button:nth-child(2)');
+await page.click('#keypop button:nth-child(2)');
 s = await sent(); pt = await lastPat();
-ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'minor' && o.v === 0), 'MAJ manda minor=0');
+ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'scale' && o.v === 1), 'MAJOR manda scale=1');
 ok(pt && pt.steps[40][1] === 4 && !pt.steps.some(x => x[0] && x[1] === 3), 'en mayor la 3ª pasa de +3 a +4');
-await page.keyboard.press('Meta+z');
-ok((await page.locator('#scale button.on').textContent()) === 'MIN', 'Cmd+Z vuelve a menor');
+await page.click('#scalev'); await page.click('#keypop button:nth-child(4)');
+pt = await lastPat();
+const dorRows = await page.evaluate(() => SCALES[3].rows);
+ok((await page.textContent('#scalet')) === 'DORIAN' && pt.steps.every(x => !x[0] || dorRows.includes(x[1])), 'DORIAN: las notas pasan a sus filas');
+const lbl = await page.evaluate(() => ROWS().join());
+ok(lbl === dorRows.join(), 'la rejilla enseña las filas de DORIAN (' + lbl + ')');
+await page.keyboard.press('Meta+z'); await page.keyboard.press('Meta+z');
+ok((await page.textContent('#scalet')) === 'MINOR', 'Cmd+Z vuelve a MINOR');
 
 // SWING
 await clear();
@@ -225,9 +248,25 @@ ok((await page.textContent('#swt')) === '57%', 'doble clic vuelve al 57 %');
 
 // SOUND
 await clear();
-await page.click('#shape button:nth-child(3)');
+await page.click('#soundv');
+const snds = await page.$$eval('#keypop button span', b => b.map(x => x.textContent));
+ok(snds[0] === 'SINE' && snds.length === 9 && snds.includes('FM SUB') && snds.includes('CUSTOM'), 'SOUND: SINE primero y 8 sonidos más (' + snds.join(', ') + ')');
+await page.click('#keypop button:nth-child(4)');   // tras la línea: SAW
 s = await sent();
-ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'shape' && o.v === 2) && (await page.locator('#shape button.on').textContent()) === 'SAW', 'SAW');
+ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'shape' && o.v === 2) && (await page.textContent('#soundt')) === 'SAW', 'elegir SAW');
+await page.click('#sine');
+ok((await page.textContent('#soundt')) === 'SINE' && await page.locator('#sine.on').count() === 1, 'el botón SINE vuelve al seno');
+await clear();
+await page.click('#newsnd');
+s = await sent(); pt = await lastPat();
+ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'shape' && o.v === 8) && (await page.textContent('#soundt')) === 'CUSTOM', 'NEW SOUND crea un sonido CUSTOM');
+const c1 = pt && pt.custom;
+ok(Array.isArray(c1) && c1.length === 10 && c1[4] >= .5 && c1[4] <= 3 && c1[5] <= 2.8 && c1[8] <= 12, 'el timbre nuevo va al plugin y está en rango (' + c1 + ')');
+await page.click('#newsnd');
+const c2 = (await lastPat()).custom;
+ok(JSON.stringify(c2) !== JSON.stringify(c1), 'cada NEW SOUND es distinto');
+await page.keyboard.press('Meta+z');
+ok(JSON.stringify((await lastPat()).custom) === JSON.stringify(c1), 'Cmd+Z vuelve al sonido anterior');
 
 // PLAY
 await clear();
@@ -249,19 +288,21 @@ ok((await sent()).some(([e]) => e === 'mbPlay'), 'barra espaciadora = PLAY');
 // Settings
 await page.click('#gear');
 ok(await page.isVisible('#modal'), 'Settings se abre');
-ok((await page.textContent('#ver')) === '0.1.0', 'versión 0.1.0');
+ok((await page.textContent('#ver')) === '0.2.0', 'versión 0.2.0');
+ok(!(await page.textContent('#modal')).includes('PLAY WITH ABLETON') && !(await page.textContent('#modal')).includes('HOW TO USE'), 'Settings sin PLAY WITH ABLETON ni el tutorial');
 await clear();
 await page.click('#dragas button:nth-child(2)');
 s = await sent();
 ok(s.some(([e, o]) => e === 'mbSettings' && o.drag === 'audio'), 'DRAG AS AUDIO');
-await page.click('#auto button:nth-child(2)');
-s = await sent();
-ok(s.some(([e, o]) => e === 'mbSet' && o.id === 'auto' && o.v === 0), 'PLAY WITH ABLETON OFF');
 await page.click('#theme button:nth-child(2)');
 s = await sent();
 ok(s.some(([e, o]) => e === 'mbSettings' && o.theme === 'light') && await page.evaluate(() => document.documentElement.classList.contains('light')), 'tema claro');
 await page.screenshot({ path: out + '-settings.png' });
 await page.click('#mclose');
+await page.click('#help');
+ok(await page.isVisible('#hmodal') && (await page.textContent('#hmodal')).includes('Choose KEY and SCALE'), 'el botón (i) abre HOW TO USE');
+await page.screenshot({ path: out + '-help.png' });
+await page.click('#hclose');
 await page.screenshot({ path: out + '-light.png' });
 
 // patrón desde el plugin (abrir proyecto)

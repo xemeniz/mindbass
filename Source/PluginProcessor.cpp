@@ -9,19 +9,19 @@ APVTS::ParameterLayout MBProcessor::layout()
     using PID = juce::ParameterID;
     auto pct = juce::AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return juce::String (juce::roundToInt (v * 100)) + " %"; });
     l.add (std::make_unique<juce::AudioParameterInt> (PID { "key", 1 }, "Key", 0, 11, 5));                     // F
-    l.add (std::make_unique<juce::AudioParameterBool> (PID { "minor", 1 }, "Minor", true));
+    l.add (std::make_unique<juce::AudioParameterChoice> (PID { "scale", 2 }, "Scale", juce::StringArray { "Minor", "Major", "Phrygian", "Dorian" }, 0));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "swing", 1 }, "Swing", juce::NormalisableRange<float> (0.5f, 0.75f, 0.005f), 0.57f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "gate", 1 }, "Gate", juce::NormalisableRange<float> (0.3f, 1.0f), 0.7f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "density", 1 }, "Density", juce::NormalisableRange<float> (0.0f, 1.0f), 0.7f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "move", 1 }, "Move", juce::NormalisableRange<float> (0.0f, 1.0f), 0.4f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "kick", 1 }, "Kick Room", juce::NormalisableRange<float> (0.0f, 1.0f), 0.45f, pct));
-    l.add (std::make_unique<juce::AudioParameterInt> (PID { "shape", 1 }, "Shape", 0, 2, 0));
+    l.add (std::make_unique<juce::AudioParameterChoice> (PID { "shape", 2 }, "Sound",
+        juce::StringArray { "Sine", "Tri", "Saw", "Square", "Round", "Organ", "FM Sub", "Pluck", "Custom" }, 0));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "drive", 1 }, "Drive", juce::NormalisableRange<float> (0.0f, 1.0f), 0.3f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "mid", 1 }, "Mid", juce::NormalisableRange<float> (0.0f, 1.0f), 0.15f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "filter", 1 }, "Filter", juce::NormalisableRange<float> (0.0f, 1.0f), 0.4f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "decay", 1 }, "Decay", juce::NormalisableRange<float> (0.0f, 1.0f), 0.9f, pct));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "sbpm", 1 }, "BPM (standalone)", juce::NormalisableRange<float> (60.0f, 200.0f, 0.1f), 128.0f));
-    l.add (std::make_unique<juce::AudioParameterBool> (PID { "auto", 1 }, "Play With Ableton", true));
     return l;
 }
 
@@ -29,10 +29,10 @@ MBProcessor::MBProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "MINDBASS", layout())
 {
-    pKey = apvts.getRawParameterValue ("key"); pMinor = apvts.getRawParameterValue ("minor"); pSwing = apvts.getRawParameterValue ("swing");
+    pKey = apvts.getRawParameterValue ("key"); pScale = apvts.getRawParameterValue ("scale"); pSwing = apvts.getRawParameterValue ("swing");
     pGate = apvts.getRawParameterValue ("gate"); pKick = apvts.getRawParameterValue ("kick"); pShape = apvts.getRawParameterValue ("shape");
     pDrive = apvts.getRawParameterValue ("drive"); pMid = apvts.getRawParameterValue ("mid"); pFilter = apvts.getRawParameterValue ("filter");
-    pDecay = apvts.getRawParameterValue ("decay"); pSbpm = apvts.getRawParameterValue ("sbpm"); pAuto = apvts.getRawParameterValue ("auto");
+    pDecay = apvts.getRawParameterValue ("decay"); pSbpm = apvts.getRawParameterValue ("sbpm");
     for (auto id : { "key", "swing", "gate" }) apvts.addParameterListener (id, this);
     loadGlobal();
     rebuild();
@@ -96,6 +96,9 @@ juce::var MBProcessor::patternVar() const
     o->setProperty ("steps", steps);
     o->setProperty ("seedA", seedA);
     o->setProperty ("seedV", seedV);
+    juce::Array<juce::var> c;
+    for (auto& x : custom) c.add (std::round (x.load() * 1000.0f) / 1000.0f);
+    o->setProperty ("custom", c);
     return juce::var (o);
 }
 
@@ -117,6 +120,12 @@ void MBProcessor::setPatternVar (const juce::var& v)
     }
     if (v.hasProperty ("seedA")) seedA = (juce::int64) v.getProperty ("seedA", 1);
     if (v.hasProperty ("seedV")) seedV = (juce::int64) v.getProperty ("seedV", 1);
+    if (auto* c = v.getProperty ("custom", juce::var()).getArray(); c != nullptr && c->size() == (int) custom.size())
+    {
+        // límites seguros para el sonido CUSTOM (NEW SOUND)
+        static const float lo[] = { 0, 0, 0, 0, 0.5f, 0, 0, 0.005f, 0, 0.002f }, hi[] = { 1, 1, 1, 1, 4, 4, 1, 1, 12, 0.2f };
+        for (size_t i = 0; i < custom.size(); ++i) custom[i] = juce::jlimit (lo[i], hi[i], (float) (double) (*c)[(int) i]);
+    }
     setPattern (p);
 }
 
@@ -124,6 +133,9 @@ mbass::SoundParams MBProcessor::sound() const
 {
     mbass::SoundParams s;
     s.shape = (int) pShape->load(); s.drive = pDrive->load(); s.mid = pMid->load(); s.filter = pFilter->load(); s.decay = pDecay->load();
+    auto& t = s.custom;
+    t.h2 = custom[0]; t.h3 = custom[1]; t.h4 = custom[2]; t.h5 = custom[3]; t.fmRatio = custom[4]; t.fmIndex = custom[5];
+    t.fmSus = custom[6]; t.fmDecay = custom[7]; t.pitch = custom[8]; t.pitchDecay = custom[9];
     return s;
 }
 
@@ -216,7 +228,7 @@ void MBProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     if (midiNow && ! wasMidi) synth.allOff();
 
     // ---- eventos del patrón dentro de este bloque ----
-    if (running && pAuto->load() > 0.5f && ! midiNow)
+    if (running && ! midiNow)
     {
         const auto& ev = evBufs[(size_t) evIdx.load()].ev;
         const double p0 = ppq, p1 = ppq + n * ppqPerSample;
@@ -283,7 +295,7 @@ juce::var MBProcessor::stateVar() const
 
 juce::String MBProcessor::clipName() const
 {
-    return "MIND BASS " + mbass::keyName ((int) pKey->load(), pMinor->load() > 0.5f) + " " + juce::String (juce::roundToInt (currentBpm()));
+    return "MIND BASS " + mbass::keyName ((int) pKey->load(), (int) pScale->load()) + " " + juce::String (juce::roundToInt (currentBpm()));
 }
 
 juce::File MBProcessor::exportClip (bool audio)

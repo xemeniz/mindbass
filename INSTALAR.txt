@@ -11,6 +11,7 @@ cd ~/Downloads/"MIND BASS" && mkdir -p ~/Library/Audio/Plug-Ins/VST3 ~/Library/A
 Cómo se usa:
  a) Dale al play de Ableton: toca su línea de 4 compases a tiempo (o pulsa PLAY / espacio dentro del plugin).
  b) KEY y MIN/MAJ: la tonalidad. El bajo va en la octava 0 de Ableton, mono.
+ b2) Las tonalidades en azul son las que más usa Mindshake (B, F, D).
  c) GENERATE: línea nueva (A A' A A''). VARIATION: solo cambia los compases 2 y 4. DENSITY, GATE, MOVE y KICK la retocan.
  d) Clic en la rejilla: poner, mover o quitar notas (quedan bloqueadas). Shift+clic: bloquear o desbloquear.
  e) Si le mandas notas MIDI, las toca y su patrón se calla.

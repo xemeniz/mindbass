@@ -59,26 +59,27 @@ int main()
     // ---------- tónica y afinación ----------
     CHECK (mbass::rootNote (5) == 29, "F = MIDI 29 (F0 de Ableton), da %d", mbass::rootNote (5));
     CHECK (mbass::rootNote (0) == 24, "C = MIDI 24 (C0 de Ableton)");
-    CHECK (mbass::keyName (5, true) == "F MIN" && mbass::keyName (10, false) == "A# MAJ", "nombres de tonalidad");
+    CHECK (mbass::keyName (5, 0) == "F MIN" && mbass::keyName (10, 1) == "A# MAJ" && mbass::keyName (11, 2) == "B PHRYG" && mbass::keyName (2, 3) == "D DOR", "nombres de tonalidad y escala");
     {
         mbass::SoundParams sp; sp.decay = 1.0f; sp.drive = 0.3f; sp.filter = 0.4f;
-        for (int shape = 0; shape < 3; ++shape)
+        for (int shape = 0; shape < mbass::kNumShapes; ++shape)
         {
             sp.shape = shape;
             auto x = hold (29, sp, 2.0);
             const double f = freqZC (x, (size_t) (0.3 * SR), x.size(), SR);
             CHECK (std::abs (f - 43.654) < 0.15, "F0 suena a 43,65 Hz (forma %d): %.3f Hz", shape, f);
             const double f0 = tone (x, (size_t) (0.3 * SR), x.size(), 43.654, SR), f1 = tone (x, (size_t) (0.3 * SR), x.size(), 87.307, SR);
-            CHECK (f0 > f1 * 2.0, "la fundamental manda (forma %d): F0 %.4f vs 2.º armónico %.4f", shape, f0, f1);
+            CHECK (f0 > f1 * (shape >= 4 ? 1.5 : 2.0), "la fundamental manda (forma %d): F0 %.4f vs 2.º armónico %.4f", shape, f0, f1);
         }
         std::printf ("  F0 (seno): %.3f Hz\n", freqZC (hold (29, mbass::SoundParams { 0, 0.3f, 0.15f, 0.4f, 1.0f }, 2.0), (size_t) (0.3 * SR), (size_t) (2.0 * SR), SR));
     }
 
     // ---------- DRIVE nunca sube el volumen ----------
-    for (int shape = 0; shape < 3; ++shape)
+    mbass::Timbre rough { 0.9f, 0.7f, 0.5f, 0.4f, 3.0f, 4.0f, 0.8f, 0.3f, 12.0f, 0.1f };   // CUSTOM extremo
+    for (int shape = 0; shape < mbass::kNumShapes; ++shape)
         for (int note : { 24, 29, 35, 41 })
         {
-            mbass::SoundParams a; a.shape = shape; a.decay = 1.0f; a.drive = 0.0f; a.mid = 0.0f; a.filter = 1.0f;
+            mbass::SoundParams a; a.shape = shape; a.decay = 1.0f; a.drive = 0.0f; a.mid = 0.0f; a.filter = 1.0f; a.custom = rough;
             mbass::SoundParams b = a; b.drive = 1.0f;
             auto xa = hold (note, a, 1.0), xb = hold (note, b, 1.0);
             const double ra = rms (xa, (size_t) (0.1 * SR), xa.size()), rb = rms (xb, (size_t) (0.1 * SR), xb.size());
@@ -92,10 +93,25 @@ int main()
 
     // ---------- nunca satura la salida ----------
     {
-        mbass::SoundParams sp; sp.shape = 2; sp.drive = 1.0f; sp.mid = 1.0f; sp.filter = 1.0f; sp.decay = 1.0f;
-        auto x = hold (36, sp, 0.5);
-        float pk = 0; for (auto v : x) pk = juce::jmax (pk, std::abs (v));
-        CHECK (pk < 0.9f, "pico por debajo de 0 dBFS con todo al máximo: %.3f", pk);
+        for (int shape = 0; shape < mbass::kNumShapes; ++shape)
+            for (float dr : { 0.0f, 1.0f })
+            {
+                mbass::SoundParams sp; sp.shape = shape; sp.drive = dr; sp.mid = 1.0f; sp.filter = 1.0f; sp.decay = 1.0f; sp.custom = rough;
+                auto x = hold (36, sp, 0.5);
+                float pk = 0; for (auto v : x) pk = juce::jmax (pk, std::abs (v));
+                CHECK (pk < 0.9f, "pico por debajo de 0 dBFS con todo al máximo (sonido %d, drive %.0f): %.3f", shape, dr, pk);
+            }
+        // ningún sonido suena mucho más fuerte que SINE (cambiar de sonido no pega un salto de volumen)
+        mbass::SoundParams s0; s0.decay = 1.0f;
+        auto xs = hold (29, s0, 1.0);
+        const double r0 = rms (xs, (size_t) (0.2 * SR), xs.size());
+        for (int shape = 1; shape < mbass::kNumShapes; ++shape)
+        {
+            mbass::SoundParams s1 = s0; s1.shape = shape;
+            auto x1 = hold (29, s1, 1.0);
+            const double r1 = rms (x1, (size_t) (0.2 * SR), x1.size());
+            CHECK (r1 < r0 * 1.12 && r1 > r0 * 0.4, "volumen del sonido %d parecido a SINE: %.3f vs %.3f", shape, r1, r0);
+        }
     }
 
     // ---------- sin clics ----------
@@ -106,7 +122,7 @@ int main()
         // patrón por defecto con todas sus notas, retriggers y saltos de octava
         auto pat = mbass::defaultPattern();
         juce::AudioBuffer<float> buf;
-        for (int shape = 0; shape < 2; ++shape)
+        for (int shape : { 0, 1, 4, 5, 6 })
         {
             sp.shape = shape; sp.decay = 1.0f;
             mbass::renderAudio (buf, SR, pat, 5, 0.57, 0.7, 128.0, sp, 0.0f);

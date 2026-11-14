@@ -21,7 +21,7 @@ using Pattern = std::array<Step, kSteps>;
 
 Pattern defaultPattern();                                   // línea de partida en estilo BCN SUB
 inline int rootNote (int key) { return 24 + juce::jlimit (0, 11, key); }   // C0 de Ableton = MIDI 24
-juce::String keyName (int key, bool minor);
+juce::String keyName (int key, int scale);   // scale: 0 MINOR, 1 MAJOR, 2 PHRYGIAN, 3 DORIAN
 
 struct Note { double beat, len; int note; float vel; };
 // Notas de un ciclo de 4 compases con swing y gate aplicados (beat en [0,16), len recortada antes de la siguiente nota).
@@ -35,7 +35,17 @@ std::vector<Event> buildEvents (const std::vector<Note>&);
 float duckGain (double beatPos, double secPerBeat, float depth);
 inline float duckDepth (float kick) { return juce::jmin (1.0f, kick * 2.0f) * 0.85f; }
 
-struct SoundParams { int shape = 0; float drive = 0.3f, mid = 0.15f, filter = 0.4f, decay = 0.9f; };
+// Timbre de los sonidos propios: seno con armónicos, FM (fase) con envolvente y golpe de tono al empezar.
+struct Timbre
+{
+    float h2 = 0, h3 = 0, h4 = 0, h5 = 0;               // armónicos sobre el seno (0-1)
+    float fmRatio = 1, fmIndex = 0, fmSus = 1, fmDecay = 0.1f;   // FM: índice que cae de fmIndex a fmIndex·fmSus en fmDecay s
+    float pitch = 0, pitchDecay = 0.02f;                // golpe de tono en semitonos que cae en pitchDecay s
+};
+// Sonidos: 0 SINE, 1 TRI, 2 SAW, 3 SQUARE, 4 ROUND, 5 ORGAN, 6 FM SUB, 7 PLUCK, 8 CUSTOM (NEW SOUND)
+constexpr int kNumShapes = 9;
+const Timbre& presetTimbre (int shape);
+struct SoundParams { int shape = 0; float drive = 0.3f, mid = 0.15f, filter = 0.4f, decay = 0.9f; Timbre custom; };
 
 class Synth
 {
@@ -61,12 +71,14 @@ private:
     enum Stage { Idle, Attack, Body, Release, Fade };
     void start (int note, float vel);
     float osc();
+    const Timbre& timbre() const { return p.shape == 8 ? p.custom : presetTimbre (p.shape); }
 
     double sr = 48000.0, phase = 0.0, inc = 0.0;
+    float hNorm = 1.0f, fmMul = 0.0f, pitchMul = 0.0f, fmEnv = 0.0f, pitchEnv = 0.0f;
     SoundParams p;
     float driveG = 1.0f, driveNorm = 1.0f, driveComp = 1.0f;
     float env = 0.0f, vel = 0.0f, atkInc = 0.0f, decMul = 1.0f, relMul = 0.0f, fadeStep = 0.0f;
-    bool sustain = true;
+    bool sustain = true, paramsReady = false;
     Stage stage = Idle;
     int curNote = -1, nextNote = -1, fadeLeft = 0;
     float nextVel = 0.0f;

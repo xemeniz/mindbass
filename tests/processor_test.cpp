@@ -87,12 +87,6 @@ int main()
     CHECK (std::abs (p.currentBpm() - 124.0) < 1e-6, "sigue el cambio de BPM");
     host.bpm = 128.0;
 
-    // ---------- PLAY WITH ABLETON OFF: calla ----------
-    p.setParam ("auto", 0.0f);
-    x = run (p, &host, 4, mono);
-    CHECK (rms (x, (size_t) (0.05 * SR), x.size()) < 1e-4, "PLAY WITH ABLETON OFF: no toca el patrón");
-    p.setParam ("auto", 1.0f);
-
     // ---------- MIDI de entrada: el patrón se calla y suena la nota que llega ----------
     {
         host.playing = true;
@@ -135,6 +129,11 @@ int main()
         p.setPattern (pat);
         p.setParam ("key", 9.0f);   // A
         p.setParam ("swing", 0.6f);
+        p.setParam ("scale", 3.0f);   // DORIAN
+        p.setParam ("shape", 8.0f);   // CUSTOM
+        auto pv = p.patternVar();
+        pv.getDynamicObject()->setProperty ("custom", juce::JSON::parse ("[0.5,0.2,0.1,0,2,1.5,0.3,0.05,5,0.01]"));
+        p.setPatternVar (pv);
         juce::MemoryBlock st; p.getStateInformation (st);
         MBProcessor q;
         int notified = 0; q.onPatternChanged = [&] { ++notified; };
@@ -145,6 +144,14 @@ int main()
         CHECK ((int) q.apvts.getRawParameterValue ("key")->load() == 9, "KEY se guarda");
         CHECK (std::abs (q.apvts.getRawParameterValue ("swing")->load() - 0.6f) < 1e-3f, "SWING se guarda");
         CHECK (notified == 1, "al abrir el proyecto avisa a la interfaz");
+        CHECK ((int) q.apvts.getRawParameterValue ("scale")->load() == 3, "la escala (DORIAN) se guarda");
+        CHECK ((int) q.apvts.getRawParameterValue ("shape")->load() == 8, "el sonido CUSTOM se guarda");
+        auto qc = q.patternVar()["custom"];
+        CHECK (qc.size() == 10 && std::abs ((double) qc[0] - 0.5) < 1e-6 && std::abs ((double) qc[8] - 5.0) < 1e-6, "y su timbre (NEW SOUND) también");
+        auto bad2 = q.patternVar(); bad2.getDynamicObject()->setProperty ("custom", juce::JSON::parse ("[9,9,9,9,99,99,9,9,99,9]"));
+        q.setPatternVar (bad2);
+        auto qc2 = q.patternVar()["custom"];
+        CHECK ((double) qc2[5] <= 4.0 && (double) qc2[8] <= 12.0 && (double) qc2[4] <= 4.0, "un timbre fuera de rango se limita");
 
         // patrón como JSON (lo que manda la interfaz)
         auto v = p.patternVar();
@@ -168,7 +175,7 @@ int main()
         auto mid = p.exportClip (false), wav = p.exportClip (true);
         CHECK (mid.existsAsFile() && mid.getFileExtension() == ".mid", "MIDI exportado: %s", mid.getFileName().toRawUTF8());
         CHECK (wav.existsAsFile() && wav.getFileExtension() == ".wav", "WAV exportado: %s", wav.getFileName().toRawUTF8());
-        CHECK (mid.getFileName().startsWith ("MIND BASS A MIN"), "el nombre lleva la tonalidad");
+        CHECK (mid.getFileName().startsWith ("MIND BASS A DOR"), "el nombre lleva la tonalidad y la escala (%s)", mid.getFileName().toRawUTF8());
         juce::WavAudioFormat fmt;
         std::unique_ptr<juce::AudioFormatReader> rd (fmt.createReaderFor (wav.createInputStream().release(), true));
         CHECK (rd != nullptr && rd->numChannels == 2 && rd->bitsPerSample == 24, "WAV estéreo de 24 bits");

@@ -32,9 +32,14 @@ header{position:relative;display:flex;align-items:center;justify-content:space-b
 .logo small{display:block;font-weight:700}
 .ico{width:34px;padding:0;display:flex;align-items:center;justify-content:center}
 .ico svg{width:16px;height:16px}
-.val{width:104px;height:34px;border-radius:10px;background:var(--btn);color:var(--btnt);display:flex;align-items:center;justify-content:center;font-weight:900;box-shadow:0 1px 2px rgba(0,0,0,.18);font-variant-numeric:tabular-nums;letter-spacing:.03em;touch-action:none;flex:none;cursor:ns-resize}
+.val{width:128px;height:34px;border-radius:10px;background:var(--btn);color:var(--btnt);display:flex;align-items:center;justify-content:center;font-weight:900;box-shadow:0 1px 2px rgba(0,0,0,.18);font-variant-numeric:tabular-nums;letter-spacing:.03em;touch-action:none;flex:none;cursor:ns-resize}
 .val.fixed{cursor:default}
-.val small{font-size:9px;letter-spacing:.14em;margin-right:6px;opacity:.6;font-weight:900}
+.val small{font-size:9px;letter-spacing:.14em;margin-right:7px;opacity:.6;font-weight:900}
+.val span{display:inline-block;text-align:left}
+#bpmt{min-width:30px}#swt{min-width:44px}
+.dd{cursor:pointer}
+.dd::after{content:"";width:6px;height:6px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg);margin-left:9px;opacity:.7;flex:none}
+.col .dd{width:100%;height:34px}
 .val.key{cursor:pointer}
 .hint{font-size:11px;color:var(--mu);font-weight:700;letter-spacing:.02em}
 .panel{background:var(--pan);border:1px solid var(--panb);border-radius:16px;padding:12px 14px}
@@ -76,11 +81,17 @@ html.light .chip.midi{background:#fff;color:#121015}
 #play.on,#play.on:hover{background:var(--on)!important;color:var(--ont)!important}
 #play.host{opacity:.75}
 /* key */
-.pop{position:fixed;z-index:9450;background:#fff;border-radius:14px;padding:8px;display:none;grid-template-columns:repeat(6,40px);gap:5px;box-shadow:0 12px 34px rgba(0,0,0,.4)}
-.pop.show{display:grid}
-.pop button{height:30px;padding:0;background:#efeef1;color:#121015;box-shadow:none!important;border-radius:8px}
-.pop button:hover{background:#e2e0e6;color:#121015;transform:none}
+.pop{position:fixed;z-index:9450;background:#fff;border-radius:12px;padding:6px;display:none;flex-direction:column;gap:3px;box-shadow:0 12px 34px rgba(0,0,0,.4);min-width:150px;max-height:80vh;overflow:auto}
+.pop.show{display:flex}
+.pop button{height:28px;padding:0 10px;background:transparent;color:#121015;box-shadow:none!important;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;width:100%}
+.pop button:hover{background:#efeef1;color:#121015;transform:none}
+.pop button.blue{background:#dbe8f7}
+.pop button.blue.soft{background:#edf3fb}
+.pop button.blue:hover{background:#c9dcf2}
+.pop button em{font-style:normal;font-size:9.5px;letter-spacing:.06em;color:#3d6a9a;font-weight:800}
 .pop button.on,.pop button.on:hover{background:#121015;color:#fff}
+.pop button.on em{color:#b7cfea}
+.pop .sep{height:1px;background:#e6e4ea;margin:3px 4px}
 /* toast / settings / tips */
 #toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#fff;color:#121015;font-weight:800;padding:10px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;transition:opacity .25s;pointer-events:none;max-width:90vw;text-align:center;z-index:9500}
 #toast.show{opacity:1}
@@ -104,20 +115,25 @@ html.light .chip.midi{background:#fff;color:#121015}
 /*@@SKIN@@*/
 /* MIND BASS: la barra de arrastre (nativa) va debajo, dentro del mismo marco */
 body::after{border-bottom:0}
-.seg button,.card .close,.card .seg,.pop button{box-shadow:none!important}
+html{background-size:auto calc(100vh * 708 / 640)!important;background-position:center top!important}
+.seg button,.card .close,.card .seg{box-shadow:none!important}
+#keypop button{box-shadow:none!important;background:transparent;color:#121015}
+#keypop button:hover{background:#efeef1}
+#keypop button.blue{background:#dbe8f7}#keypop button.blue.soft{background:#edf3fb}#keypop button.blue:hover{background:#c9dcf2}
+#keypop button.on,#keypop button.on:hover{background:#121015;color:#fff}
 </style>
 </head>
 <body>
 <div class="stage" id="stage"><div class="wrap" id="wrap">
 <header>
  <div class="hl">
-  <div class="val key" id="keyv" data-tip="Key of the bass. Click to choose, or use the wheel"><small>KEY</small><span id="keyt">F</span></div>
-  <div class="seg" id="scale"></div>
+  <div class="val dd" id="keyv" data-tip="Key of the bass. In blue, the keys Mindshake uses most (B, F, D). Click to choose, or use the wheel"><small>KEY</small><span id="keyt">F</span></div>
+  <div class="val dd" id="scalev" data-tip="Scale of the line: MINOR, MAJOR, PHRYGIAN or DORIAN"><small>SCALE</small><span id="scalet">MINOR</span></div>
   <div class="val" id="bpmv" data-tip="Tempo. It follows Ableton; in the standalone app drag it up and down"><small>BPM</small><span id="bpmt">128</span></div>
   <div class="val" id="swv" data-tip="Swing of the off 16ths. 57 % is the Barcelona groove (same as BCN GROOVE in MINDSHOT). Double-click = 57 %"><small>SWING</small><span id="swt">57%</span></div>
-  <span class="hint" id="bpmh">from Ableton</span>
  </div>
  <div class="hr">
+  <button class="ico" id="help" data-tip="How to use"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6" fill="currentColor"/></svg></button>
   <button class="ico" id="undo" data-tip="Undo (Cmd+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
   <button class="ico" id="gear" data-tip="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.830 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   <div class="logo"><b>MIND BASS</b><small>BY DJ NAN&#201;</small></div>
@@ -126,8 +142,7 @@ body::after{border-bottom:0}
 
 <div class="panel stylep">
  <div class="ptitle">Style</div>
- <div class="seg wide" id="style"></div>
- <span class="hint">LDN ROLLER and IBZ BOUNCE are coming next.</span>
+ <div class="val dd" id="stylev" data-tip="Style of the line. BCN SUB: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing"><span id="stylet">BCN SUB</span></div>
  <div class="sp"></div>
  <span class="chip midi" id="midichip" style="display:none" data-tip="You are playing MIDI notes into MIND BASS: the pattern waits until you stop">MIDI IN &#183; PATTERN MUTED</span>
 </div>
@@ -152,7 +167,11 @@ body::after{border-bottom:0}
  <div class="panel sndp">
   <div class="ptitle">Sound</div>
   <div class="inner">
-   <div class="col" id="shape"></div>
+   <div class="col">
+    <button class="dd" id="soundv" data-tip="Sound of the bass. SINE is always first: the clean Mindshake sub"><span id="soundt">SINE</span></button>
+    <button id="newsnd" data-tip="Makes a new sound of your own (CUSTOM). Cmd+Z brings the last one back">NEW SOUND</button>
+    <button class="tg" id="sine" data-tip="Back to the pure sine">SINE</button>
+   </div>
    <div class="knobs" id="ksnd"></div>
   </div>
  </div>
@@ -167,25 +186,26 @@ body::after{border-bottom:0}
  <div class="seti"><div class="seg" id="theme"></div></div>
  <h3>DRAG TO ABLETON AS</h3>
  <div class="seti"><div class="seg" id="dragas"></div></div>
- <h3>PLAY WITH ABLETON</h3>
- <div class="seti"><div class="seg" id="auto"></div><span class="hint" style="color:#55505e">OFF = silent until you press PLAY or send notes</span></div>
- <h3>HOW TO USE</h3>
- <div class="info"><b>1. Put it on a MIDI track</b><br><span>It is an instrument with its own sub. Press play in Ableton and it plays its 4-bar line in time.</span><br>
-  <b>2. Choose KEY and SCALE</b><br><span>The line sits in octave 0 of Ableton (30-65 Hz), mono.</span><br>
-  <b>3. GENERATE and VARIATION</b><br><span>GENERATE makes a new line in A A' A A'' form. VARIATION only changes bars 2 and 4. DENSITY, GATE, MOVE and KICK reshape the same idea.</span><br>
-  <b>4. Edit the grid</b><br><span>Click to add, move or remove a note: it stays locked. Shift+click locks or unlocks a step. Locked steps survive GENERATE.</span><br>
-  <b>5. Shape the sound</b><br><span>SINE, TRI or SAW. DRIVE adds warmth without getting louder. MID adds presence at 280 Hz so it reads on small speakers. FILTER and DECAY close it up.</span><br>
-  <b>6. Your own notes</b><br><span>Send MIDI notes and it plays them; the pattern waits until you stop.</span><br>
-  <b>7. Drag it</b><br><span>Drag the bar at the bottom into Ableton: MIDI or audio (choose above).</span></div>
  <h3>INFO</h3>
  <div class="info">MIND BASS<br><span>Series</span> Mind Series<br><span>Version</span> <b id="ver"></b><br><span>Created by</span> Dj Nan&#233;</div>
+</div></div>
+
+<div id="hmodal" class="modal"><div class="card">
+ <h2>How to use<button class="close" id="hclose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" width="14" height="14"><path d="M6 6l12 12M18 6L6 18"/></svg></button></h2>
+ <div class="info"><b>1. Put it on a MIDI track</b><br><span>It is an instrument with its own sub. Press play in Ableton and it plays its 4-bar line in time.</span><br>
+  <b>2. Choose KEY and SCALE</b><br><span>The line sits in octave 0 of Ableton (30-65 Hz), mono. The keys in blue are the ones Mindshake uses most.</span><br>
+  <b>3. GENERATE and VARIATION</b><br><span>GENERATE makes a new line in A A' A A'' form. VARIATION only changes bars 2 and 4. DENSITY, GATE, MOVE and KICK reshape the same idea.</span><br>
+  <b>4. Edit the grid</b><br><span>Click to add, move or remove a note: it stays locked. Shift+click locks or unlocks a step. Locked steps survive GENERATE.</span><br>
+  <b>5. Shape the sound</b><br><span>Pick a sound from the list or press NEW SOUND for one of your own; SINE is always there. DRIVE adds warmth without getting louder. MID adds presence at 280 Hz so it reads on small speakers. FILTER and DECAY close it up.</span><br>
+  <b>6. Your own notes</b><br><span>Send MIDI notes and it plays them; the pattern waits until you stop.</span><br>
+  <b>7. Drag it</b><br><span>Drag the bar at the bottom into Ableton: MIDI or audio (choose above).</span></div>
 </div></div>
 <div id="toast"></div>
 <div class="tip" id="tip"></div>
 
 <script>
 "use strict";
-const VERSION='0.1.0';
+const VERSION='0.2.0';
 const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const J=()=>window.__JUCE__&&window.__JUCE__.backend;
 const PLUGIN=!!J();
@@ -197,7 +217,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let toastT=null;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600)}
 
 // ================= estado (el plugin manda; aquí hay una copia) =================
-const P={key:5,minor:1,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128,auto:1};
+const P={key:5,scale:0,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128};
 let settings={theme:'dark',drag:'midi',standalone:false};
 let play=0,pos=0,bpm=128,midiIn=false,dragging=null,Z=1;
 
@@ -236,17 +256,28 @@ function rhythm(r,o){
  }
  return {on,gs,ge};
 }
-function interval(r,minor){
- const x=r();
- if(x<.5)return r()<.7?(r()<.5?1:-1):(r()<.5?2:-2);          // semitonos (vecinos de la tónica)
- if(x<.875)return wpick(r,[[7,.35],[-5,.25],[10,.2],[12,.2]]); // 5ª, 7ª u octava
- return minor?3:4;                                             // 3ª
+// Escalas: filas de la rejilla (semitonos desde la tónica), vecinos de la tónica y nota de color (3ª o la propia del modo)
+const SCALES=[
+ {name:'MINOR',short:'MIN',rows:[12,10,7,5,3,2,1,0,-1,-2,-5],near:[[1,.35],[-1,.35],[2,.15],[-2,.15]],col:[[3,1]]},
+ {name:'MAJOR',short:'MAJ',rows:[12,10,7,5,4,2,1,0,-1,-2,-5],near:[[1,.35],[-1,.35],[2,.15],[-2,.15]],col:[[4,1]]},
+ {name:'PHRYGIAN',short:'PHRYG',rows:[12,10,8,7,5,3,1,0,-2,-4,-5],near:[[1,.6],[-2,.4]],col:[[3,.6],[8,.4]]},
+ {name:'DORIAN',short:'DOR',rows:[12,10,9,7,5,3,2,0,-2,-3,-5],near:[[2,.5],[-2,.35],[-3,.15]],col:[[3,.5],[9,.5]]}];
+const SC=i=>SCALES[clamp(i|0,0,3)];
+// al cambiar de escala cada nota busca su mismo grado (3ª menor ↔ mayor, b6 ↔ 6ª, b2 ↔ 2ª) y si no, la fila más cercana
+const DEG_PAIRS=[[3,4],[8,9],[1,2],[-1,-2],[-3,-4],[10,11]];
+function snapTo(rows,off){if(rows.includes(off))return off;for(const [a,b] of DEG_PAIRS){if(off===a&&rows.includes(b))return b;if(off===b&&rows.includes(a))return a}
+ let b=rows[0],bd=99;for(const v of rows){const d=Math.abs(v-off);if(d<bd||(d===bd&&Math.abs(v)<Math.abs(b))){bd=d;b=v}}return b}
+function interval(r,sc){
+ const x=r(),S=SC(sc);
+ if(x<.5)return wpick(r,S.near);                                  // vecinos de la tónica (semitonos o tonos del modo)
+ if(x<.875)return wpick(r,[[7,.35],[-5,.25],[10,.2],[12,.2]]);    // 5ª, 7ª u octava
+ return wpick(r,S.col);                                           // 3ª o color del modo (b6 frigia, 6ª dórica)
 }
 function genBar(r,o){
  const {on,gs,ge}=rhythm(r,o),bar=[];let first=true;
  for(let i=0;i<16;i++){
   if(!on[i]){bar.push(emptyStep());continue}
-  const off=first||r()<1-o.move?0:interval(r,o.minor);first=false;
+  const off=first||r()<1-o.move?0:interval(r,o.scale);first=false;
   const vel=gs[i]?.95:+(.78+r()*.08).toFixed(2);
   bar.push([1,off,vel,ge[i]?1.2:1,0]);
  }
@@ -257,13 +288,13 @@ function vary(A,r,o,strong){
  const B=A.map(s=>s.slice()),ons=()=>B.map((s,i)=>s[0]?i:-1).filter(i=>i>0);
  // 1) uno o dos cambios de nota
  const k=strong?2:1;
- for(let n=0;n<k;n++){const c=ons();if(!c.length)break;const i=pick(r,c);B[i][1]=B[i][1]===0?interval(r,o.minor):(r()<.5?0:interval(r,o.minor))}
+ for(let n=0;n<k;n++){const c=ons();if(!c.length)break;const i=pick(r,c);B[i][1]=B[i][1]===0?interval(r,o.scale):(r()<.5?0:interval(r,o.scale))}
  // 2) retoque de ritmo: alargar o recortar un grupo
  if(r()<.6){const cand=[];for(let i=1;i<16;i++){if(o.kick>.5&&i%4===0)continue;
    if(!B[i][0]&&B[i-1][0])cand.push(['add',i]);else if(B[i][0]&&B[i-1][0]&&B[i-2]&&B[i-2][0]&&!(B[i+1]&&B[i+1][0]))cand.push(['cut',i])}
   if(cand.length){const [t,i]=pick(r,cand);if(t==='add'){B[i]=[1,B[i-1][1],.8,1.2,0];B[i-1][3]=1}else{B[i]=emptyStep();B[i-1][3]=1.2}}}
  // 3) A'': remate al final del compás 4 (subida, octava o vuelta a la tónica)
- if(strong){const f=pick(r,FILLS).map(x=>x===3&&!o.minor?4:x),last=[];for(let i=15;i>=8&&last.length<f.length;i--)if(B[i][0])last.unshift(i);
+ if(strong){const f=pick(r,FILLS).map(x=>snapTo(SC(o.scale).rows,x)),last=[];for(let i=15;i>=8&&last.length<f.length;i--)if(B[i][0])last.unshift(i);
   last.forEach((i,j)=>{B[i][1]=f[f.length-last.length+j]})}
  if(JSON.stringify(A)===JSON.stringify(B)){const c=ons();if(c.length){const i=c[c.length-1];B[i][1]=B[i][1]===7?12:7}}
  return B;
@@ -278,14 +309,15 @@ function generate(seedA,seedV,o,cur){
 window.MB={generate,rng,rhythm};
 
 // ================= patrón =================
-let PAT={steps:Array.from({length:64},emptyStep),seedA:1,seedV:1};
-const gopts=()=>({density:P.density,move:P.move,kick:P.kick,minor:!!P.minor});
-function sendPattern(){emit('mbPattern',{steps:PAT.steps,seedA:PAT.seedA,seedV:PAT.seedV})}
+const DEF_CUSTOM=[.3,.1,0,0,1,.8,.4,.08,0,.02];
+let PAT={steps:Array.from({length:64},emptyStep),seedA:1,seedV:1,custom:DEF_CUSTOM.slice()};
+const gopts=()=>({density:P.density,move:P.move,kick:P.kick,scale:P.scale});
+function sendPattern(){emit('mbPattern',{steps:PAT.steps,seedA:PAT.seedA,seedV:PAT.seedV,custom:PAT.custom})}
 function regen(){PAT.steps=generate(PAT.seedA,PAT.seedV,gopts(),PAT.steps);sendPattern();paintGrid();paintInfo()}
 
 // ================= deshacer =================
 const undoS=[],redoS=[];
-function snap(){return JSON.stringify({P:{key:P.key,minor:P.minor,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
+function snap(){return JSON.stringify({P:{key:P.key,scale:P.scale,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
 function pushUndo(){const s=snap();if(undoS[undoS.length-1]!==s){undoS.push(s);if(undoS.length>100)undoS.shift()}redoS.length=0}
 function restore(s){const o=JSON.parse(s);for(const k in o.P)if(o.P[k]!==P[k])setG(k,o.P[k]);
  if(JSON.stringify(o.T)!==JSON.stringify(PAT)){PAT=o.T;sendPattern()}paint()}
@@ -294,7 +326,7 @@ function redo(){if(!redoS.length)return;undoS.push(snap());restore(redoS.pop())}
 $('#undo').onclick=undo;
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();return}
  if((e.code==='Space'||e.key===' ')&&!e.repeat&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();$('#play').click()}
- if(e.key==='Escape'){$('#keypop').classList.remove('show');$('#modal').classList.remove('show')}});
+ if(e.key==='Escape'){closeDD();$('#modal').classList.remove('show');$('#hmodal').classList.remove('show')}});
 document.addEventListener('mouseup',()=>{const a=document.activeElement;if(a&&a.tagName==='BUTTON')a.blur()});
 
 function set(id,v){P[id]=v;emit('mbSet',{id,v})}
@@ -337,17 +369,39 @@ const fmtK=id=>id==='filter'?(()=>{const f=60*Math.pow(2000/60,P.filter);return 
 
 // ================= segmentos =================
 function seg(sel,items,get,setf){const c=$(sel);c.innerHTML='';items.forEach(([v,l,tip])=>{const b=el('button',get()===v?'on':'',l);if(tip)b.dataset.tip=tip;b.onclick=()=>setf(v);c.appendChild(b)})}
-function shapeCol(){const c=$('#shape');c.innerHTML='';[[0,'SINE','Pure sine: the clean Mindshake sub'],[1,'TRI','Triangle: a little more edge'],[2,'SAW','Saw: more harmonics, use with the FILTER']].forEach(([v,l,t])=>{
- const b=el('button','tg'+(P.shape===v?' on':''),l);b.dataset.tip=t;b.onclick=()=>{pushUndo();setG('shape',v);paint()};c.appendChild(b)})}
-
-// ================= tonalidad =================
-(function(){const pop=$('#keypop');NAMES.forEach((n,i)=>{const b=el('button','',n);b.onclick=()=>{pushUndo();setG('key',i);pop.classList.remove('show');paint()};pop.appendChild(b)});
- $('#keyv').addEventListener('click',e=>{const r=$('#keyv').getBoundingClientRect();pop.style.left=r.left+'px';pop.style.top=(r.bottom+8)+'px';pop.classList.toggle('show');e.stopPropagation()});
- document.addEventListener('pointerdown',e=>{if(!e.target.closest('#keypop')&&!e.target.closest('#keyv'))pop.classList.remove('show')});
- $('#keyv').addEventListener('wheel',e=>{e.preventDefault();pushUndo();setG('key',(P.key+(e.deltaY<0?1:11))%12);paint()},{passive:false})})();
-function setScale(m){if(m===P.minor)return;pushUndo();setG('minor',m);
- // la 3ª cambia con la escala: 3 en menor, 4 en mayor
- PAT.steps.forEach(s=>{if(s[0]&&s[1]===(m?4:3))s[1]=m?3:4});sendPattern();paint()}
+// ================= listas desplegables =================
+const SOUNDS=['SINE','TRI','SAW','SQUARE','ROUND','ORGAN','FM SUB','PLUCK','CUSTOM'];
+const SOUND_TIPS=['Pure sine: the clean Mindshake sub','Triangle: a little more edge','Saw: more harmonics, use with the FILTER','Soft square: hollow and firm',
+ 'Round sine with a touch of 2nd and 3rd: reads on small speakers','Organ: octave, fifth and two octaves on top','FM growl on the attack that settles into a sub','Short knock with a pitch drop: plucky bass','Your own sound from NEW SOUND'];
+// tonalidades del bajo en los 12 temas de Mindshake 2023-2026 (Notion > ANÁLISIS DE GÉNEROS > MINDSHAKE)
+const KEY_USE={11:5,5:3,2:2,10:1,6:1};
+let ddOpen=null;
+const pop=$('#keypop');
+function closeDD(){pop.classList.remove('show');ddOpen=null}
+function openDD(anchor,items,cur,onPick){
+ if(ddOpen===anchor){closeDD();return}
+ pop.innerHTML='';items.forEach(it=>{if(it==='-'){pop.appendChild(el('div','sep'));return}
+  const b=el('button',(it.v===cur?'on ':'')+(it.cls||''),'<span>'+it.l+'</span>'+(it.em?'<em>'+it.em+'</em>':''));if(it.tip)b.dataset.tip=it.tip;
+  b.onclick=()=>{closeDD();if(it.v!==cur)onPick(it.v)};pop.appendChild(b)});
+ const r=anchor.getBoundingClientRect();pop.style.minWidth=Math.max(150,r.width)+'px';pop.classList.add('show');
+ const h=pop.offsetHeight;pop.style.left=Math.min(innerWidth-pop.offsetWidth-8,r.left)+'px';pop.style.top=(r.bottom+8+h>innerHeight-8?Math.max(8,r.top-8-h):r.bottom+8)+'px';ddOpen=anchor}
+document.addEventListener('pointerdown',e=>{if(ddOpen&&!e.target.closest('#keypop')&&!e.target.closest('.dd'))closeDD()});
+$('#keyv').addEventListener('click',e=>openDD($('#keyv'),NAMES.map((n,i)=>({v:i,l:n,cls:KEY_USE[i]?(KEY_USE[i]>1?'blue':'blue soft'):'',em:KEY_USE[i]?KEY_USE[i]+' OF 12':'',
+  tip:KEY_USE[i]?'Bass key in '+KEY_USE[i]+' of 12 Mindshake tracks':''})),P.key,v=>{pushUndo();setG('key',v);paint()}));
+$('#keyv').addEventListener('wheel',e=>{e.preventDefault();pushUndo();setG('key',(P.key+(e.deltaY<0?1:11))%12);paint()},{passive:false});
+$('#scalev').addEventListener('click',()=>openDD($('#scalev'),SCALES.map((x,i)=>({v:i,l:x.name})),P.scale,setScale));
+$('#stylev').addEventListener('click',()=>openDD($('#stylev'),[{v:'bcn',l:'BCN SUB',tip:'Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing'}],'bcn',()=>{}));
+$('#soundv').addEventListener('click',()=>openDD($('#soundv'),[{v:0,l:'SINE',tip:SOUND_TIPS[0]},'-',...SOUNDS.slice(1).map((n,i)=>({v:i+1,l:n,tip:SOUND_TIPS[i+1]}))],P.shape,v=>{pushUndo();setG('shape',v);paint()}));
+$('#sine').onclick=()=>{if(P.shape===0)return;pushUndo();setG('shape',0);paint()};
+// NEW SOUND: un timbre propio (armónicos + FM + golpe de tono), siempre de bajo
+function newTimbre(r){const h=()=>r()<.55?+(r()*1).toFixed(2):0;
+ const fm=r()<.6,pt=r()<.35;
+ return [+(r()*.6).toFixed(2),+(r()*.4*(r()<.7)).toFixed(2),+(r()*.25*(r()<.5)).toFixed(2),+(r()*.15*(r()<.35)).toFixed(2),
+  pick(r,[1,1,2,3,.5]),fm?+(.4+r()*2.4).toFixed(2):0,+(r()*.6).toFixed(2),+(.02+r()*.2).toFixed(3),pt?pick(r,[3,5,7,12]):0,+(.006+r()*.03).toFixed(3)]}
+$('#newsnd').onclick=()=>{pushUndo();PAT.custom=newTimbre(rng(newSeed()));sendPattern();setG('shape',8);paint();toast('New sound: CUSTOM')};
+function setScale(m){if(m===P.scale)return;pushUndo();setG('scale',m);
+ // las notas pasan a la fila más cercana de la escala nueva
+ const rows=SC(m).rows;PAT.steps.forEach(s=>{if(s[0])s[1]=snapTo(rows,s[1])});sendPattern();paint()}
 
 // ================= botones =================
 $('#gen').onclick=()=>{pushUndo();PAT.seedA=newSeed();PAT.seedV=newSeed();regen();};
@@ -355,7 +409,7 @@ $('#var').onclick=()=>{pushUndo();PAT.seedV=newSeed();regen()};
 $('#play').onclick=()=>{if(play===2){toast('Ableton is playing: MIND BASS follows it');return}emit('mbPlay');if(!PLUGIN){play=play?0:1;demoT0=performance.now();paintPlay()}};
 
 // ================= rejilla =================
-const ROWS=()=>[12,10,7,5,P.minor?3:4,2,1,0,-1,-2,-5];
+const ROWS=()=>SC(P.scale).rows;
 function rowOf(off){const R=ROWS();let bi=0,bd=99;R.forEach((v,i)=>{const d=Math.abs(v-off);if(d<bd){bd=d;bi=i}});return bi}
 function canvas(cv){const w=cv.clientWidth,h=cv.clientHeight,k=Z*(window.devicePixelRatio||1);
  const W=Math.max(1,Math.round(w*k)),H=Math.max(1,Math.round(h*k));if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H}
@@ -416,32 +470,32 @@ function paintGrid(){
 })();
 
 function paintInfo(){const n=PAT.steps.filter(s=>s[0]).length,l=PAT.steps.filter(s=>s[4]).length;
- $('#pinfo').textContent=NAMES[P.key]+(P.minor?' MIN':' MAJ')+' · '+n+' NOTES'+(l?' · '+l+' LOCKED':'')}
+ $('#pinfo').textContent=NAMES[P.key]+' '+SC(P.scale).short+' · '+n+' NOTES'+(l?' · '+l+' LOCKED':'')}
 function paintPlay(){const b=$('#play');b.classList.toggle('on',play===1);b.classList.toggle('host',play===2);
  b.querySelector('span').textContent=play===1?'STOP':play===2?'ABLETON':'PLAY';
  b.querySelector('svg').innerHTML=play===1?'<rect x="6" y="6" width="12" height="12" rx="2"/>':'<path d="M7 4.5v15l12-7.5z"/>'}
 
 function paint(){
  $('#keyt').textContent=NAMES[P.key];
- seg('#scale',[[1,'MIN','Minor scale'],[0,'MAJ','Major scale']],()=>P.minor?1:0,setScale);
- seg('#style',[['bcn','BCN SUB','Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing']],()=>'bcn',()=>{});
+ $('#scalet').textContent=SC(P.scale).name;
+ $('#soundt').textContent=SOUNDS[clamp(P.shape|0,0,8)];$('#sine').classList.toggle('on',P.shape===0);
  const bp=settings.standalone?P.sbpm:bpm;$('#bpmt').textContent=Math.round(bp);
- $('#bpmv').classList.toggle('fixed',!settings.standalone);$('#bpmh').textContent=settings.standalone?'drag to change':'from Ableton';
+ $('#bpmv').classList.toggle('fixed',!settings.standalone);
  $('#swt').textContent=(Math.round(P.swing*1000)/10).toString().replace(/\.0$/,'')+'%';
  kns.forEach(({k,dial,kv})=>{const p=P[k.id];dial.style.setProperty('--p',p);dial.style.setProperty('--a',(-135+270*p)+'deg');kv.textContent=fmtK(k.id)});
- shapeCol();
  $('#midichip').style.display=midiIn?'inline-flex':'none';
- [...$('#keypop').children].forEach((b,i)=>b.classList.toggle('on',i===P.key));
  paintPlay();paintInfo();paintGrid();
 }
 
 // ================= settings =================
 function paintSettings(){document.documentElement.classList.toggle('light',settings.theme==='light');
  seg('#theme',[['dark','DARK'],['light','LIGHT']],()=>settings.theme,v=>{settings.theme=v;paintSettings();paint();emit('mbSettings',{theme:v})});
- seg('#dragas',[['midi','MIDI'],['audio','AUDIO']],()=>settings.drag,v=>{settings.drag=v;paintSettings();emit('mbSettings',{drag:v})});
- seg('#auto',[[1,'ON'],[0,'OFF']],()=>P.auto?1:0,v=>{setG('auto',v);paintSettings()})}
+ seg('#dragas',[['midi','MIDI'],['audio','AUDIO']],()=>settings.drag,v=>{settings.drag=v;paintSettings();emit('mbSettings',{drag:v})})}
 $('#gear').onclick=()=>{paintSettings();$('#modal').classList.add('show')};
 $('#mclose').onclick=()=>$('#modal').classList.remove('show');
+$('#help').onclick=()=>$('#hmodal').classList.add('show');
+$('#hclose').onclick=()=>$('#hmodal').classList.remove('show');
+$('#hmodal').onclick=e=>{if(e.target.id==='hmodal')$('#hmodal').classList.remove('show')};
 $('#modal').onclick=e=>{if(e.target.id==='modal')$('#modal').classList.remove('show')};
 $('#ver').textContent=VERSION;
 
@@ -461,14 +515,14 @@ if(window.matchMedia)matchMedia('(resolution: 2dppx)').addEventListener&&matchMe
 on('mbSettings',v=>{if(!v)return;Object.assign(settings,v);paintSettings();paint()});
 on('mbState',v=>{if(!v)return;let ch=false;
  if(v.p){for(const k in v.p){if(k===dragging)continue;const x=v.p[k];P[k]=typeof x==='boolean'?+x:x}
-  ['key','shape'].forEach(k=>P[k]=Math.round(P[k]));['minor','auto'].forEach(k=>P[k]=P[k]>.5?1:0);ch=true}
+  ['key','shape','scale'].forEach(k=>P[k]=Math.round(P[k]));ch=true}
  if('play' in v&&v.play!==play){play=v.play;ch=true}
  if('bpm' in v&&v.bpm!==bpm){bpm=v.bpm;ch=true}
  if('midiIn' in v&&!!v.midiIn!==midiIn){midiIn=!!v.midiIn;ch=true}
  if('pos' in v&&(v.pos!==pos||play)){pos=v.pos;if(!ch)paintGrid()}
  if(ch)paint()});
 on('mbPattern',v=>{if(!v||!Array.isArray(v.steps)||v.steps.length!==64)return;
- PAT={steps:v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]),seedA:v.seedA||1,seedV:v.seedV||1};paint()});
+ PAT={steps:v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]),seedA:v.seedA||1,seedV:v.seedV||1,custom:Array.isArray(v.custom)&&v.custom.length===10?v.custom.map(Number):DEF_CUSTOM.slice()};paint()});
 on('mbToast',v=>{if(v&&v.msg)toast(v.msg)});
 
 // ================= modo navegador (sin plugin) =================

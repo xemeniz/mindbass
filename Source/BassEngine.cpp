@@ -1,4 +1,5 @@
 #include "BassEngine.h"
+#include <cstring>
 #include <algorithm>
 #include <cmath>
 
@@ -25,10 +26,46 @@ Pattern defaultPattern()
     return p;
 }
 
-juce::String keyName (int key, bool minor)
+juce::String keyName (int key, int scale)
 {
     static const char* n[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-    return juce::String (n[juce::jlimit (0, 11, key)]) + (minor ? " MIN" : " MAJ");
+    static const char* sc[] = { " MIN", " MAJ", " PHRYG", " DOR" };
+    return juce::String (n[juce::jlimit (0, 11, key)]) + sc[juce::jlimit (0, 3, scale)];
+}
+
+const Timbre& presetTimbre (int shape)
+{
+    static const Timbre none;
+    static const Timbre t[] = {
+        none, none, none, none,
+        { 0.25f, 0.08f, 0, 0,        1, 0, 1, 0.1f,           0, 0.02f },     // ROUND: seno redondo con algo de 2.º y 3.º (se oye en altavoces pequeños)
+        { 0.5f, 0.25f, 0.2f, 0.06f,  1, 0, 1, 0.1f,           0, 0.02f },     // ORGAN: octava, quinta y doble octava
+        { 0, 0, 0, 0,                1, 1.4f, 0.3f, 0.09f,    0, 0.02f },     // FM SUB: gruñido al empezar que se queda en sub
+        { 0.1f, 0, 0, 0,             2, 2.6f, 0.0f, 0.035f,   7, 0.012f },    // PLUCK: golpe corto con tono que cae
+    };
+    return (shape >= 4 && shape <= 7) ? t[shape] : none;
+}
+
+// Una muestra del oscilador "seno + armónicos + FM" para la fase ph (0-1) e índice idx.
+static inline double timbreWave (const Timbre& t, double ph, double idx)
+{
+    const double w = 2.0 * kPi * ph;
+    double y = std::sin (w + idx * std::sin (w * t.fmRatio));
+    if (t.h2 > 0) y += t.h2 * std::sin (2 * w);
+    if (t.h3 > 0) y += t.h3 * std::sin (3 * w);
+    if (t.h4 > 0) y += t.h4 * std::sin (4 * w);
+    if (t.h5 > 0) y += t.h5 * std::sin (5 * w);
+    return y;
+}
+
+// Forma de onda base para calcular la compensación del DRIVE (sin polyBLEP).
+static double rawWave (int shape, const Timbre& t, double ph, double idx)
+{
+    if (shape == 1) { double u = ph + 0.25; u -= std::floor (u); return 1.0 - 4.0 * std::abs (u - 0.5); }
+    if (shape == 2) { double u = ph + 0.5; u -= std::floor (u); return 2.0 * u - 1.0; }
+    if (shape == 3) return ph < 0.5 ? 0.8 : -0.8;
+    if (shape >= 4) return timbreWave (t, ph, idx);
+    return std::sin (2.0 * kPi * ph);
 }
 
 std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate)
@@ -99,14 +136,24 @@ void Synth::SVF::tick (float x, float& low, float& band)
 void Synth::prepare (double sampleRate)
 {
     sr = sampleRate;
+    paramsReady = false;
     atkInc = (float) (1.0 / (0.0025 * sr));
     relMul = (float) std::exp (-1.0 / (0.010 * sr));
     reset();
     setParams (p);
 }
 
+static bool sameSound (const SoundParams& a, const SoundParams& b)
+{
+    static_assert (sizeof (SoundParams) == sizeof (int) + 4 * sizeof (float) + sizeof (Timbre), "SoundParams sin relleno");
+    return std::memcmp (&a, &b, sizeof (SoundParams)) == 0;
+}
+
 void Synth::setParams (const SoundParams& np)
 {
+    // se llama en cada bloque: si nada ha cambiado no se recalcula (la compensación del DRIVE cuesta)
+    if (paramsReady && sameSound (np, p)) return;
+    paramsReady = true;
     p = np;
     lp.set (60.0 * std::pow (2000.0 / 60.0, (double) juce::jlimit (0.0f, 1.0f, p.filter)), sr, 0.707f);
     mid.set (280.0, sr, 0.8f);
@@ -116,24 +163,32 @@ void Synth::setParams (const SoundParams& np)
     driveG = 1.0f + juce::jlimit (0.0f, 1.0f, p.drive) * 6.0f;
     driveNorm = 1.0f / std::tanh (driveG);
     {
+        const auto& t = timbre();
+        // los armónicos se normalizan a la energía del seno: cambiar de sonido no sube el volumen
+        hNorm = p.shape >= 4 ? (float) (1.0 / std::sqrt (1.0 + t.h2 * t.h2 + t.h3 * t.h3 + t.h4 * t.h4 + t.h5 * t.h5)) : 1.0f;
+        fmMul = (float) std::exp (-1.0 / (juce::jmax (0.002f, t.fmDecay) * sr));
+        pitchMul = (float) std::exp (-1.0 / (juce::jmax (0.002f, t.pitchDecay) * sr));
+
         // DRIVE nunca suena más fuerte: se compensa con la forma de onda elegida para que ni la energía
         // ni la fundamental (lo que queda tras el filtro) suban; solo cambia el color.
-        double a = 0, b = 0, fr = 0, fi = 0, gr = 0, gi = 0;
-        constexpr int N = 512;
-        for (int i = 0; i < N; ++i)
+        // En los sonidos con FM se mira con el índice al principio y al final, y se queda la más prudente.
+        driveComp = 1.0f;
+        for (double idx : { (double) t.fmIndex, (double) (t.fmIndex * t.fmSus) })
         {
-            const double ph = (i + 0.5) / N;
-            double x;
-            if (p.shape == 1) { double t = ph + 0.25; t -= std::floor (t); x = 1.0 - 4.0 * std::abs (t - 0.5); }
-            else if (p.shape == 2) { double t = ph + 0.5; t -= std::floor (t); x = 2.0 * t - 1.0; }
-            else x = std::sin (2.0 * kPi * ph);
-            const double y = std::tanh (driveG * x) * driveNorm;
-            a += x * x; b += y * y;
-            fr += x * std::cos (2.0 * kPi * ph); fi += x * std::sin (2.0 * kPi * ph);
-            gr += y * std::cos (2.0 * kPi * ph); gi += y * std::sin (2.0 * kPi * ph);
+            double a = 0, b = 0, fr = 0, fi = 0, gr = 0, gi = 0;
+            constexpr int N = 1024;
+            for (int i = 0; i < N; ++i)
+            {
+                const double ph = (i + 0.5) / N;
+                const double x = rawWave (p.shape, t, ph, idx) * hNorm;
+                const double y = std::tanh (driveG * x) * driveNorm;
+                a += x * x; b += y * y;
+                fr += x * std::cos (2.0 * kPi * ph); fi += x * std::sin (2.0 * kPi * ph);
+                gr += y * std::cos (2.0 * kPi * ph); gi += y * std::sin (2.0 * kPi * ph);
+            }
+            const double fx = std::sqrt (fr * fr + fi * fi), fy = std::sqrt (gr * gr + gi * gi);
+            driveComp = juce::jmin (driveComp, (float) juce::jmin (std::sqrt (a / b), fy > 1.0e-9 ? fx / fy : 1.0));
         }
-        const double fx = std::sqrt (fr * fr + fi * fi), fy = std::sqrt (gr * gr + gi * gi);
-        driveComp = (float) juce::jmin (std::sqrt (a / b), fy > 1.0e-9 ? fx / fy : 1.0);
     }
 }
 
@@ -146,6 +201,7 @@ void Synth::start (int note, float v)
 {
     curNote = note; vel = v; phase = 0.0;
     inc = 440.0 * std::pow (2.0, (note - 69) / 12.0) / sr;
+    fmEnv = 1.0f; pitchEnv = 1.0f;
     stage = Attack; env = 0.0f;
 }
 
@@ -176,6 +232,7 @@ float Synth::osc()
     const double ph = phase;
     switch (p.shape)
     {
+        case 0: return (float) std::sin (2.0 * kPi * ph);
         case 1:   // triángulo, empieza en 0 y subiendo
         {
             double t = ph + 0.25; t -= std::floor (t);
@@ -189,7 +246,25 @@ float Synth::osc()
             else if (t > 1.0 - inc) { const double x = (t - 1.0) / inc; y -= x * x + x + x + 1.0; }
             return (float) y;
         }
-        default: return (float) std::sin (2.0 * kPi * ph);
+        case 3:   // cuadrada suave con polyBLEP (al 80 % para igualar energía con el seno)
+        {
+            auto blep = [this] (double t)
+            {
+                if (t < inc) { const double x = t / inc; return x + x - x * x - 1.0; }
+                if (t > 1.0 - inc) { const double x = (t - 1.0) / inc; return x * x + x + x + 1.0; }
+                return 0.0;
+            };
+            double y = ph < 0.5 ? 1.0 : -1.0;
+            double t2 = ph + 0.5; t2 -= std::floor (t2);
+            y += blep (ph) - blep (t2);
+            return (float) (0.8 * y);
+        }
+        default:
+        {
+            const auto& t = timbre();
+            const double idx = t.fmIndex * (t.fmSus + (1.0f - t.fmSus) * fmEnv);
+            return (float) (timbreWave (t, ph, idx) * hNorm);
+        }
     }
 }
 
@@ -218,7 +293,14 @@ void Synth::render (float* out, int n, const float* gain)
             case Idle: break;
         }
         const float x = osc();
-        phase += inc; if (phase >= 1.0) phase -= 1.0;
+        double step = inc;
+        if (p.shape >= 4)
+        {
+            const auto& t = timbre();
+            if (std::abs (t.pitch) > 1.0e-6f) step *= std::pow (2.0, t.pitch * pitchEnv / 12.0);
+            fmEnv *= fmMul; pitchEnv *= pitchMul;
+        }
+        phase += step; while (phase >= 1.0) phase -= 1.0;
         const float sat = std::tanh (driveG * x) * driveNorm * driveComp;
         float lo, bd, mlo, mbd;
         lp.tick (sat, lo, bd);
