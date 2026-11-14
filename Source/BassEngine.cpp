@@ -1,0 +1,279 @@
+#include "BassEngine.h"
+#include <algorithm>
+#include <cmath>
+
+namespace mbass
+{
+static constexpr double kPi = 3.14159265358979323846;
+
+Pattern defaultPattern()
+{
+    // Grupos de 2-4 semicorcheas con silencios, tónica casi siempre, un semitono y una 5ª; 4.º compás variado.
+    Pattern p;
+    const int on[] = { 0, 2, 3, 5, 6, 8, 10, 11, 13, 14 };
+    for (int bar = 0; bar < 4; ++bar)
+        for (int s : on)
+        {
+            auto& st = p[(size_t) (bar * 16 + s)];
+            st.on = true; st.off = 0;
+            st.vel = (s == 0 || s == 5 || s == 10) ? 0.95f : 0.8f;
+            st.len = (s == 3 || s == 8 || s == 14) ? 1.2f : 1.0f;
+        }
+    p[6].off = 1; p[22].off = -1; p[38].off = 1;
+    p[13].off = 7; p[45].off = 7;
+    p[56].off = 3; p[59].off = 1; p[61].on = true; p[61].off = 2; p[61].vel = 0.85f; p[62].off = 10; p[63].on = true; p[63].off = 12; p[63].vel = 0.8f;
+    return p;
+}
+
+juce::String keyName (int key, bool minor)
+{
+    static const char* n[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    return juce::String (n[juce::jlimit (0, 11, key)]) + (minor ? " MIN" : " MAJ");
+}
+
+std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate)
+{
+    std::vector<Note> notes;
+    const double sw = (juce::jlimit (0.5, 0.75, swing) - 0.5) * 0.5;   // retraso de las semicorcheas pares, en tiempos
+    auto onset = [sw] (int i) { return i * 0.25 + ((i & 1) ? sw : 0.0); };
+    const int root = rootNote (key);
+    for (int i = 0; i < kSteps; ++i)
+    {
+        const auto& s = pat[(size_t) i];
+        if (! s.on) continue;
+        const double b = onset (i);
+        // siguiente nota (puede estar en la vuelta del bucle)
+        double nb = b + kLoopBeats;
+        for (int j = 1; j <= kSteps; ++j)
+            if (pat[(size_t) ((i + j) % kSteps)].on) { nb = onset ((i + j) % kSteps) + ((i + j) >= kSteps ? kLoopBeats : 0.0); break; }
+        double len = 0.25 * juce::jlimit (0.1, 1.0, gate) * juce::jlimit (0.3f, 2.0f, s.len);
+        len = juce::jmax (0.02, juce::jmin (len, nb - b - 0.006));
+        notes.push_back ({ b, len, juce::jlimit (0, 127, root + s.off), juce::jlimit (0.05f, 1.0f, s.vel) });
+    }
+    return notes;
+}
+
+std::vector<Event> buildEvents (const std::vector<Note>& notes)
+{
+    std::vector<Event> ev;
+    ev.reserve (notes.size() * 2);
+    for (auto& n : notes)
+    {
+        ev.push_back ({ n.beat, n.note, n.vel, true });
+        ev.push_back ({ std::fmod (n.beat + n.len, kLoopBeats), n.note, 0.0f, false });
+    }
+    std::sort (ev.begin(), ev.end(), [] (const Event& a, const Event& b)
+    {
+        if (std::abs (a.beat - b.beat) > 1.0e-9) return a.beat < b.beat;
+        return ! a.on && b.on;
+    });
+    return ev;
+}
+
+float duckGain (double beatPos, double secPerBeat, float depth)
+{
+    if (depth <= 0.0f) return 1.0f;
+    const double t = (beatPos - std::floor (beatPos)) * secPerBeat;
+    const double a = juce::jmin (1.0, t / 0.004);
+    const double d = std::exp (-juce::jmax (0.0, t - 0.004) / 0.075);
+    return (float) (1.0 - depth * a * d);
+}
+
+// ------------------------------------------------------------------ sinte
+void Synth::SVF::set (double fc, double srate, float q)
+{
+    g = (float) std::tan (kPi * juce::jlimit (10.0, srate * 0.45, fc) / srate);
+    k = 1.0f / q;
+    a1 = 1.0f / (1.0f + g * (g + k)); a2 = g * a1; a3 = g * a2;
+}
+
+void Synth::SVF::tick (float x, float& low, float& band)
+{
+    const float v3 = x - ic2;
+    const float v1 = a1 * ic1 + a2 * v3;
+    const float v2 = ic2 + a2 * ic1 + a3 * v3;
+    ic1 = 2.0f * v1 - ic1; ic2 = 2.0f * v2 - ic2;
+    low = v2; band = v1;
+}
+
+void Synth::prepare (double sampleRate)
+{
+    sr = sampleRate;
+    atkInc = (float) (1.0 / (0.0025 * sr));
+    relMul = (float) std::exp (-1.0 / (0.010 * sr));
+    reset();
+    setParams (p);
+}
+
+void Synth::setParams (const SoundParams& np)
+{
+    p = np;
+    lp.set (60.0 * std::pow (2000.0 / 60.0, (double) juce::jlimit (0.0f, 1.0f, p.filter)), sr, 0.707f);
+    mid.set (280.0, sr, 0.8f);
+    sustain = p.decay >= 0.98f;
+    const double tau = 0.03 + (double) p.decay * p.decay * 0.8;
+    decMul = (float) std::exp (-1.0 / (tau * sr));
+    driveG = 1.0f + juce::jlimit (0.0f, 1.0f, p.drive) * 6.0f;
+    driveNorm = 1.0f / std::tanh (driveG);
+    {
+        // misma energía con más o menos DRIVE: así nunca suena más fuerte, solo más rico
+        double a = 0, b = 0;
+        for (int i = 0; i < 256; ++i)
+        {
+            const double x = std::sin (2.0 * kPi * (i + 0.5) / 256.0);
+            const double y = std::tanh (driveG * x) * driveNorm;
+            a += x * x; b += y * y;
+        }
+        driveComp = (float) std::sqrt (a / b);
+    }
+}
+
+void Synth::reset()
+{
+    stage = Idle; env = 0; curNote = nextNote = -1; phase = 0; lp.reset(); mid.reset();
+}
+
+void Synth::start (int note, float v)
+{
+    curNote = note; vel = v; phase = 0.0;
+    inc = 440.0 * std::pow (2.0, (note - 69) / 12.0) / sr;
+    stage = Attack; env = 0.0f;
+}
+
+void Synth::noteOn (int note, float v)
+{
+    if (stage == Idle || env < 1.0e-3f) { start (note, v); return; }
+    // nota nueva encima de otra: fundido de 2 ms y vuelta a fase 0 (pegada igual en cada nota, sin clics)
+    nextNote = note; nextVel = v;
+    fadeLeft = juce::jmax (1, (int) (0.002 * sr));
+    fadeStep = env / (float) fadeLeft;
+    stage = Fade;
+}
+
+void Synth::noteOff (int note)
+{
+    if (stage == Fade && note == nextNote) { nextNote = -1; return; }
+    if (note == curNote && (stage == Attack || stage == Body)) stage = Release;
+}
+
+void Synth::allOff()
+{
+    nextNote = -1;
+    if (stage == Attack || stage == Body || stage == Fade) stage = Release;
+}
+
+float Synth::osc()
+{
+    const double ph = phase;
+    switch (p.shape)
+    {
+        case 1:   // triángulo, empieza en 0 y subiendo
+        {
+            double t = ph + 0.25; t -= std::floor (t);
+            return (float) (1.0 - 4.0 * std::abs (t - 0.5));
+        }
+        case 2:   // sierra con polyBLEP, empieza en 0
+        {
+            double t = ph + 0.5; t -= std::floor (t);
+            double y = 2.0 * t - 1.0;
+            if (t < inc) { const double x = t / inc; y -= x + x - x * x - 1.0; }
+            else if (t > 1.0 - inc) { const double x = (t - 1.0) / inc; y -= x * x + x + x + 1.0; }
+            return (float) y;
+        }
+        default: return (float) std::sin (2.0 * kPi * ph);
+    }
+}
+
+void Synth::render (float* out, int n, const float* gain)
+{
+    const float midAmt = juce::jlimit (0.0f, 1.0f, p.mid) * 0.75f;
+    const float midNorm = 1.0f / (1.0f + midAmt * 0.35f);
+    const float tn = 1.0f / std::tanh (3.5f);
+    for (int i = 0; i < n; ++i)
+    {
+        if (stage == Idle) return;
+        switch (stage)
+        {
+            case Attack:  env += atkInc; if (env >= 1.0f) { env = 1.0f; stage = Body; } break;
+            case Body:    if (! sustain) env *= decMul; break;
+            case Release: env *= relMul; if (env < 1.0e-4f) { stage = Idle; env = 0; curNote = -1; } break;
+            case Fade:
+                env -= fadeStep;
+                if (--fadeLeft <= 0 || env <= 0.0f)
+                {
+                    env = 0.0f;
+                    if (nextNote >= 0) { start (nextNote, nextVel); nextNote = -1; }
+                    else { stage = Idle; curNote = -1; }
+                }
+                break;
+            case Idle: break;
+        }
+        const float x = osc();
+        phase += inc; if (phase >= 1.0) phase -= 1.0;
+        const float sat = std::tanh (driveG * x) * driveNorm * driveComp;
+        float lo, bd, mlo, mbd;
+        lp.tick (sat, lo, bd);
+        mid.tick (std::tanh (3.5f * x) * tn, mlo, mbd);
+        const float s = (lo + midAmt * mbd * 1.25f) * midNorm;
+        out[i] += s * env * vel * 0.5f * (gain != nullptr ? gain[i] : 1.0f);
+    }
+}
+
+// ------------------------------------------------------------------ exportar
+juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate)
+{
+    constexpr int tpq = 960;
+    juce::MidiMessageSequence seq;
+    seq.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0);
+    for (auto& n : buildNotes (pat, key, swing, gate))
+    {
+        const double end = juce::jmin (kLoopBeats, n.beat + n.len);
+        const auto v = (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (n.vel * 127.0f));
+        seq.addEvent (juce::MidiMessage::noteOn (1, n.note, v), std::round (n.beat * tpq));
+        seq.addEvent (juce::MidiMessage::noteOff (1, n.note), std::round (end * tpq));
+    }
+    seq.addEvent (juce::MidiMessage::endOfTrack(), kLoopBeats * tpq);
+    seq.updateMatchedPairs();
+    juce::MidiFile f;
+    f.setTicksPerQuarterNote (tpq);
+    f.addTrack (seq);
+    return f;
+}
+
+void renderAudio (juce::AudioBuffer<float>& out, double sr, const Pattern& pat, int key, double swing, double gate,
+                  double bpm, const SoundParams& sp, float kick)
+{
+    const double spb = 60.0 / juce::jlimit (40.0, 250.0, bpm);
+    const int total = (int) std::round (kLoopBeats * spb * sr);
+    out.setSize (2, total);
+    out.clear();
+    Synth s; s.prepare (sr); s.setParams (sp);
+    auto notes = buildNotes (pat, key, swing, gate);
+    // el note-off de la última nota puede pasar del final: en el clip se corta en el compás 5
+    std::vector<Event> ev;
+    for (auto& n : notes) { ev.push_back ({ n.beat, n.note, n.vel, true }); ev.push_back ({ juce::jmin (kLoopBeats, n.beat + n.len), n.note, 0, false }); }
+    std::sort (ev.begin(), ev.end(), [] (const Event& a, const Event& b) { return std::abs (a.beat - b.beat) > 1e-9 ? a.beat < b.beat : (! a.on && b.on); });
+    const float depth = duckDepth (kick);
+    std::vector<float> g ((size_t) total);
+    for (int i = 0; i < total; ++i) g[(size_t) i] = duckGain (i / (spb * sr), spb, depth);
+    auto* L = out.getWritePointer (0);
+    int pos = 0;
+    size_t e = 0;
+    while (pos < total)
+    {
+        while (e < ev.size() && (int) std::round (ev[e].beat * spb * sr) <= pos)
+        {
+            if (ev[e].on) s.noteOn (ev[e].note, ev[e].vel); else s.noteOff (ev[e].note);
+            ++e;
+        }
+        const int next = e < ev.size() ? juce::jmin (total, (int) std::round (ev[e].beat * spb * sr)) : total;
+        const int len = juce::jmax (1, next - pos);
+        s.render (L + pos, juce::jmin (len, total - pos), g.data() + pos);
+        pos += len;
+    }
+    // fundido de 3 ms al final para que el clip en bucle no haga clic
+    const int fade = juce::jmin (total, (int) (0.003 * sr));
+    for (int i = 0; i < fade; ++i) L[total - 1 - i] *= (float) i / (float) fade;
+    out.copyFrom (1, 0, out, 0, 0, total);   // mono en los dos canales
+}
+}
