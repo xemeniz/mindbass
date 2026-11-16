@@ -6,8 +6,10 @@
 // MIND BASS · motor: patrón de 4 compases, sinte de sub mono, sidechain al kick y exportación (MIDI y WAV).
 namespace mbass
 {
-constexpr int kSteps = 64;            // 4 compases de semicorcheas
-constexpr double kLoopBeats = 16.0;   // 4 compases de 4/4
+constexpr int kSteps = 128;           // hasta 8 compases de semicorcheas (BARS: 1, 2, 4 u 8)
+constexpr double kLoopBeats = 16.0;   // bucle por defecto: 4 compases de 4/4
+inline int barsFromIndex (int i) { static const int b[] = { 1, 2, 4, 8 }; return b[juce::jlimit (0, 3, i)]; }
+inline double loopBeats (int bars) { return 4.0 * juce::jlimit (1, 8, bars); }
 
 struct Step
 {
@@ -26,11 +28,11 @@ juce::String keyName (int key, int scale);   // scale: 0 MINOR, 1 MAJOR, 2 PHRYG
 struct Note { double beat, len; int note; float vel; };
 // Notas de un ciclo de 4 compases con swing y gate aplicados (beat en [0,16), len recortada antes de la siguiente nota).
 // octave: 0-2 sobre la octava 0 de Ableton (el estilo RIO, por ejemplo, va en la 1)
-std::vector<Note> buildNotes (const Pattern&, int key, double swing, double gate, int octave = 0);
+std::vector<Note> buildNotes (const Pattern&, int key, double swing, double gate, int octave = 0, int bars = 4);
 
 struct Event { double beat; int note; float vel; bool on; };
 // Lo mismo como eventos de un bucle (los note-off que pasan del final vuelven al principio). Ordenados, note-off primero.
-std::vector<Event> buildEvents (const std::vector<Note>&);
+std::vector<Event> buildEvents (const std::vector<Note>&, int bars = 4);
 
 // Sidechain sincronizado: en cada negra el bajo baja de golpe y vuelve en ~80 ms.
 float duckGain (double beatPos, double secPerBeat, float depth);
@@ -86,7 +88,7 @@ private:
     SVF lp, mid;
 };
 
-juce::MidiFile makeMidi (const Pattern&, int key, double swing, double gate, int octave = 0);
+juce::MidiFile makeMidi (const Pattern&, int key, double swing, double gate, int octave = 0, int bars = 4);
 void renderAudio (juce::AudioBuffer<float>& out, double sr, const Pattern&, int key, double swing, double gate,
-                  double bpm, const SoundParams&, float kick, int octave = 0);
+                  double bpm, const SoundParams&, float kick, int octave = 0, int bars = 4);
 }

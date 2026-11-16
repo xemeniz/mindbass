@@ -50,7 +50,8 @@ public:
     bool isStandalone() const { return wrapperType == wrapperType_Standalone; }
     double currentBpm() const;
     int playState() const;              // 0 parado, 1 PLAY propio, 2 sonando con Ableton
-    float playPos() const { return (float) (posBeats.load() / mbass::kLoopBeats); }
+    float playPos() const { return (float) (posBeats.load() / mbass::loopBeats (bars())); }
+    int bars() const { return mbass::barsFromIndex ((int) pBars->load()); }
     bool midiIn() const { return midiActive.load(); }
 
     std::function<void()> onPatternChanged;
@@ -63,7 +64,7 @@ public:
     void setPattern (const mbass::Pattern&);
 
 private:
-    struct Events { std::vector<mbass::Event> ev; };
+    struct Events { std::vector<mbass::Event> ev; double loop = mbass::kLoopBeats; };
     // KEY, SWING y GATE rehacen los eventos en el hilo de mensajes (la automatización llega por el hilo de audio)
     void parameterChanged (const juce::String&, float) override
     {
@@ -100,7 +101,7 @@ private:
     std::atomic<float>* pKey = nullptr; std::atomic<float>* pScale = nullptr; std::atomic<float>* pSwing = nullptr;
     std::atomic<float>* pGate = nullptr; std::atomic<float>* pKick = nullptr; std::atomic<float>* pShape = nullptr;
     std::atomic<float>* pDrive = nullptr; std::atomic<float>* pMid = nullptr; std::atomic<float>* pFilter = nullptr;
-    std::atomic<float>* pDecay = nullptr; std::atomic<float>* pSbpm = nullptr; std::atomic<float>* pOct = nullptr;
+    std::atomic<float>* pDecay = nullptr; std::atomic<float>* pSbpm = nullptr; std::atomic<float>* pOct = nullptr; std::atomic<float>* pBars = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MBProcessor)
 };

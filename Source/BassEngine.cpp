@@ -68,21 +68,23 @@ static double rawWave (int shape, const Timbre& t, double ph, double idx)
     return std::sin (2.0 * kPi * ph);
 }
 
-std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate, int octave)
+std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate, int octave, int bars)
 {
     std::vector<Note> notes;
+    const int steps = 16 * juce::jlimit (1, 8, bars);
+    const double loop = loopBeats (bars);
     const double sw = (juce::jlimit (0.5, 0.75, swing) - 0.5) * 0.5;   // retraso de las semicorcheas pares, en tiempos
     auto onset = [sw] (int i) { return i * 0.25 + ((i & 1) ? sw : 0.0); };
     const int root = rootNote (key) + 12 * juce::jlimit (0, 2, octave);
-    for (int i = 0; i < kSteps; ++i)
+    for (int i = 0; i < steps; ++i)
     {
         const auto& s = pat[(size_t) i];
         if (! s.on) continue;
         const double b = onset (i);
         // siguiente nota (puede estar en la vuelta del bucle)
-        double nb = b + kLoopBeats;
-        for (int j = 1; j <= kSteps; ++j)
-            if (pat[(size_t) ((i + j) % kSteps)].on) { nb = onset ((i + j) % kSteps) + ((i + j) >= kSteps ? kLoopBeats : 0.0); break; }
+        double nb = b + loop;
+        for (int j = 1; j <= steps; ++j)
+            if (pat[(size_t) ((i + j) % steps)].on) { nb = onset ((i + j) % steps) + ((i + j) >= steps ? loop : 0.0); break; }
         double len = 0.25 * juce::jlimit (0.1, 1.0, gate) * juce::jlimit (0.3f, 2.0f, s.len);
         len = juce::jmax (0.02, juce::jmin (len, nb - b - 0.006));
         notes.push_back ({ b, len, juce::jlimit (0, 127, root + s.off), juce::jlimit (0.05f, 1.0f, s.vel) });
@@ -90,14 +92,14 @@ std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double 
     return notes;
 }
 
-std::vector<Event> buildEvents (const std::vector<Note>& notes)
+std::vector<Event> buildEvents (const std::vector<Note>& notes, int bars)
 {
     std::vector<Event> ev;
     ev.reserve (notes.size() * 2);
     for (auto& n : notes)
     {
         ev.push_back ({ n.beat, n.note, n.vel, true });
-        ev.push_back ({ std::fmod (n.beat + n.len, kLoopBeats), n.note, 0.0f, false });
+        ev.push_back ({ std::fmod (n.beat + n.len, loopBeats (bars)), n.note, 0.0f, false });
     }
     std::sort (ev.begin(), ev.end(), [] (const Event& a, const Event& b)
     {
@@ -311,19 +313,20 @@ void Synth::render (float* out, int n, const float* gain)
 }
 
 // ------------------------------------------------------------------ exportar
-juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate, int octave)
+juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate, int octave, int bars)
 {
     constexpr int tpq = 960;
     juce::MidiMessageSequence seq;
     seq.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0);
-    for (auto& n : buildNotes (pat, key, swing, gate, octave))
+    const double loop = loopBeats (bars);
+    for (auto& n : buildNotes (pat, key, swing, gate, octave, bars))
     {
-        const double end = juce::jmin (kLoopBeats, n.beat + n.len);
+        const double end = juce::jmin (loop, n.beat + n.len);
         const auto v = (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (n.vel * 127.0f));
         seq.addEvent (juce::MidiMessage::noteOn (1, n.note, v), std::round (n.beat * tpq));
         seq.addEvent (juce::MidiMessage::noteOff (1, n.note), std::round (end * tpq));
     }
-    seq.addEvent (juce::MidiMessage::endOfTrack(), kLoopBeats * tpq);
+    seq.addEvent (juce::MidiMessage::endOfTrack(), loop * tpq);
     seq.updateMatchedPairs();
     juce::MidiFile f;
     f.setTicksPerQuarterNote (tpq);
@@ -332,17 +335,18 @@ juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate,
 }
 
 void renderAudio (juce::AudioBuffer<float>& out, double sr, const Pattern& pat, int key, double swing, double gate,
-                  double bpm, const SoundParams& sp, float kick, int octave)
+                  double bpm, const SoundParams& sp, float kick, int octave, int bars)
 {
     const double spb = 60.0 / juce::jlimit (40.0, 250.0, bpm);
-    const int total = (int) std::round (kLoopBeats * spb * sr);
+    const double loop = loopBeats (bars);
+    const int total = (int) std::round (loop * spb * sr);
     out.setSize (2, total);
     out.clear();
     Synth s; s.prepare (sr); s.setParams (sp);
-    auto notes = buildNotes (pat, key, swing, gate, octave);
+    auto notes = buildNotes (pat, key, swing, gate, octave, bars);
     // el note-off de la última nota puede pasar del final: en el clip se corta en el compás 5
     std::vector<Event> ev;
-    for (auto& n : notes) { ev.push_back ({ n.beat, n.note, n.vel, true }); ev.push_back ({ juce::jmin (kLoopBeats, n.beat + n.len), n.note, 0, false }); }
+    for (auto& n : notes) { ev.push_back ({ n.beat, n.note, n.vel, true }); ev.push_back ({ juce::jmin (loop, n.beat + n.len), n.note, 0, false }); }
     std::sort (ev.begin(), ev.end(), [] (const Event& a, const Event& b) { return std::abs (a.beat - b.beat) > 1e-9 ? a.beat < b.beat : (! a.on && b.on); });
     const float depth = duckDepth (kick);
     std::vector<float> g ((size_t) total);

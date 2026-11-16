@@ -63,7 +63,7 @@ html.light .chip.midi{background:#fff;color:#121015}
 .stylep .ptitle{margin:0}
 /* pattern */
 .patp{margin-bottom:10px}
-.grid{position:relative;height:196px;border-radius:12px;background:var(--cell);overflow:hidden}
+.grid{position:relative;height:236px;border-radius:12px;background:var(--cell);overflow:hidden}
 .grid canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer;touch-action:none}
 .grid canvas.mv{cursor:grabbing}
 /* abajo */
@@ -171,13 +171,14 @@ html{background-size:auto calc(100vh * 708 / 640)!important;background-position:
  <div class="ptitle">Style</div>
  <div class="val dd" id="stylev" data-tip="Style of the line"><span id="stylet">BCN SUB</span></div>
  <div class="val dd" id="octv" data-tip="Ableton octave of the line. 0 = sub, 1 = low bass that reads on monitors"><small>OCT</small><span id="octt">0</span></div>
+ <div class="val dd" id="barsv" data-tip="Length of the pattern: 1, 2, 4 or 8 bars. The clip you drag to Ableton has this length"><small>BARS</small><span id="barst">4</span></div>
  <div class="sp"></div>
  <span class="chip midi" id="midichip" style="display:none" data-tip="You are playing MIDI notes into MIND BASS: the pattern waits until you stop">MIDI IN &#183; PATTERN MUTED</span>
+ <span class="chip" id="pinfo">4 BARS</span>
 </div>
 
 <div class="panel patp">
- <div class="ptitle">Pattern<div class="sp"></div><span class="chip" id="pinfo">4 BARS</span></div>
- <div class="grid" id="grid" data-tip="Click = add, move or remove a note (it stays locked). Shift+click = lock or unlock a step. Locked steps survive GENERATE"><canvas id="gcv"></canvas></div>
+ <div class="grid" id="grid" data-tip="Click = add, move or remove a note. Shift+click = lock a step so GENERATE keeps it. Drag in the bottom lane = velocity"><canvas id="gcv"></canvas></div>
 </div>
 
 <div class="bottom">
@@ -233,7 +234,7 @@ html{background-size:auto calc(100vh * 708 / 640)!important;background-position:
 
 <script>
 "use strict";
-const VERSION='0.3.0';
+const VERSION='0.4.0';
 const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const J=()=>window.__JUCE__&&window.__JUCE__.backend;
 const PLUGIN=!!J();
@@ -245,7 +246,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let toastT=null;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600)}
 
 // ================= estado (el plugin manda; aquí hay una copia) =================
-const P={key:5,octave:0,scale:0,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128};
+const P={key:5,octave:0,bars:2,scale:0,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128};
 let settings={theme:'dark',drag:'midi',standalone:false};
 let play=0,pos=0,bpm=128,midiIn=false,dragging=null,Z=1;
 
@@ -328,12 +329,22 @@ function vary(A,r,o,strong){
  if(JSON.stringify(A)===JSON.stringify(B)){const c=ons();if(c.length){const i=c[c.length-1];B[i][1]=B[i][1]===7?12:7}}
  return B;
 }
+// Frase según BARS: 1 = A · 2 = A A'' · 4 = A A' A A'' · 8 = A A' A A'' B B' A A'''
+const NBARS=[1,2,4,8],MAXST=128;
 function generate(seedA,seedV,o,cur){
- const A=(isStyle(o)?genStyleBar:genBar)(rng(seedA),o);
+ const gb=isStyle(o)?genStyleBar:genBar,nb=o.bars||4;
+ const A=gb(rng(seedA),o);
  const A1=vary(A,rng(seedV),o,false),A2=vary(A,rng((seedV^0x5bd1e995)>>>0),o,true);
- const out=[].concat(A,A1,A.map(s=>s.slice()),A2);
+ const cp=b=>b.map(s=>s.slice());
+ let seq;
+ if(nb===1)seq=[A];
+ else if(nb===2)seq=[A,A2];
+ else if(nb===4)seq=[A,A1,cp(A),A2];
+ else{const B=gb(rng((seedA^0x2545f491)>>>0),o),B1=vary(B,rng((seedV^0x68e31da4)>>>0),o,false),A3=vary(A,rng((seedV^0x1b873593)>>>0),o,true);
+  seq=[A,A1,cp(A),A2,B,B1,cp(A),A3]}
+ const out=[].concat(...seq);while(out.length<MAXST)out.push(emptyStep());
  if(isStyle(o))snapBar(out,SC(o.scale).rows);
- if(cur)for(let i=0;i<64;i++)if(cur[i]&&cur[i][4])out[i]=cur[i].slice();
+ if(cur)for(let i=0;i<MAXST;i++)if(cur[i]&&cur[i][4])out[i]=cur[i].slice();
  return out;
 }
 // ================= ESTILOS 0.3 (Notion > ANÁLISIS DE GÉNEROS, análisis v2 de nov 2026) =================
@@ -341,30 +352,30 @@ function generate(seedA,seedV,o,cur){
 // pats: [paso 1-16, semitonos desde la tónica]. occ: % de compases con nota en cada paso. deg: grados fuera de la tónica y su peso.
 // Con DENSITY, MOVE y KICK en el valor del estilo sale el patrón tal cual; al moverlos se aleja respetando las estadísticas.
 const STYLES={
- bcn:{l:'BCN SUB',tip:'Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing',src:'Mindshake',n:12,keys:{11:5,5:3,2:2,10:1,6:1},
+ bcn:{l:'BCN SUB',tip:'Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing',src:'Mindshake',keys:{11:5,5:3,2:2,10:1,6:1},
   def:{swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,scale:0,octave:0,sbpm:128}},
- solid:{l:'SOLID',tip:'Rolling house bass: about 7 short notes per bar off the kick, root most of the time, semitone moves. Octave 0, straight, 129 BPM',src:'reference',n:9,keys:{0:5,5:2,7:1,4:1},
+ solid:{l:'SOLID',tip:'Rolling house bass: about 7 short notes per bar off the kick, root most of the time, semitone moves. Octave 0, straight, 129 BPM',src:'reference',keys:{0:6,5:2,9:2,4:2,7:1,2:1,8:1,3:1},minor:true,mean:7,tonic:.55,rep:.25,
   def:{swing:.5,gate:.9,density:.5,move:.25,kick:.6,shape:0,drive:.2,mid:.15,scale:0,octave:0,sbpm:129},
   pats:[[[4,0],[7,0],[8,12],[9,0],[10,0],[12,1],[15,0]],
         [[3,0],[4,0],[7,-2],[8,0],[10,5],[12,1],[15,-5],[16,0]],
         [[1,0],[4,0],[7,1],[8,0],[10,0],[12,-2],[15,0]]],
   occ:[44,43,36,61,58,25,62,71,60,52,41,59,42,20,65,36],peaks:[4,7,10,15],
   deg:[[1,13],[5,6],[7,6],[10,6],[-2,4],[12,4],[-5,3]]},
- rio:{l:'RIO',tip:'Latin tech house bass: short plucky notes in octave 1 that change degree (5th, 6th, 2nd), spread across the bar. Dorian, straight, 128 BPM',src:'reference',n:8,keys:{4:2,0:1,3:1,11:1,8:1,10:1,9:1},
+ rio:{l:'RIO',tip:'Latin tech house bass: short plucky notes in octave 1 that change degree (5th, 6th, 2nd), spread across the bar. Dorian, straight, 128 BPM',src:'reference',keys:{4:2,9:2,11:2,2:1,0:1,3:1,5:1,7:1,8:1,10:1},minor:true,mean:7.5,tonic:.3,rep:.18,
   def:{swing:.5,gate:.55,density:.5,move:.55,kick:.6,shape:0,drive:.4,mid:.35,scale:3,octave:1,sbpm:128},
   pats:[[[1,-5],[4,0],[6,7],[7,9],[11,0],[12,2],[15,7]],
         [[3,0],[4,0],[7,7],[8,-1],[10,0],[12,9],[15,-5]],
         [[4,0],[7,7],[8,7],[11,9],[12,7],[14,2],[15,0]]],
   occ:[44,37,40,65,58,47,67,44,50,33,50,41,49,40,52,39],peaks:[4,7,15],
   deg:[[7,9],[9,9],[-1,8],[2,8],[1,7],[-5,6],[12,4]]},
- bailesito:{l:'BAILESITO',tip:'Walking latin bass: pure sine that steps by semitones and tones around the root and rarely repeats. Peaks on 7 and 4, straight, 130 BPM',src:'reference',n:12,keys:{1:4,7:2,0:1,6:1,2:1,11:1,9:1,4:1},walk:true,
+ bailesito:{l:'BAILESITO',tip:'Walking latin bass: pure sine that steps by semitones and tones around the root and rarely repeats. Peaks on 7 and 4, straight, 130 BPM',src:'reference',keys:{1:4,8:3,9:2,7:2,2:2,0:1,6:1,11:1,4:1,5:1},minor:true,mean:7,tonic:.35,rep:.13,walk:true,
   def:{swing:.5,gate:.95,density:.5,move:.8,kick:.55,shape:0,drive:0,mid:0,scale:0,octave:1,sbpm:130},
   pats:[[[1,0],[2,2],[4,3],[7,2],[9,0],[10,-1],[12,0],[15,-2]],
         [[2,0],[4,-1],[7,0],[10,2],[12,3],[15,2]],
         [[1,0],[4,2],[7,3],[9,2],[10,0],[12,-1],[15,0]]],
   occ:[52,47,27,60,47,29,67,30,51,54,26,48,41,28,45,35],peaks:[7,4],
   deg:[[-1,11],[2,9],[-2,7],[1,6],[3,5],[-5,4]]},
- sintos:{l:'SINTOS',tip:'Deep club sub in octave 0: about 8 notes per bar that stay off the kick and push into the next bar (15-16), with octave jumps. Straight, 131 BPM',src:'reference',n:7,keys:{9:2,0:2,3:1,4:1,11:1},
+ sintos:{l:'SINTOS',tip:'Deep club sub in octave 0: about 8 notes per bar that stay off the kick and push into the next bar (15-16), with octave jumps. Straight, 131 BPM',src:'reference',keys:{9:2,0:2,3:1,4:1,11:1},minor:true,mean:8,tonic:.32,rep:.25,
   def:{swing:.5,gate:.95,density:.55,move:.4,kick:.65,shape:0,drive:.1,mid:.1,scale:0,octave:0,sbpm:131},
   pats:[[[1,0],[4,0],[7,1],[8,12],[12,7],[15,0],[16,9]],
         [[2,0],[4,1],[7,7],[8,0],[10,9],[12,7],[15,0],[16,12]],
@@ -378,7 +389,29 @@ const degPick=(r,S)=>wpick(r,S.deg);
 // paso de bajo caminante: vecino (±1-2 semitonos) de la nota anterior, dentro de la rejilla
 function walkFrom(r,prev,rows){const v=prev+wpick(r,[[1,.3],[-1,.3],[2,.2],[-2,.2]]);return v===prev?0:v}
 function snapBar(bar,rows){bar.forEach(s=>{if(s[0])s[1]=snapTo(rows,s[1])});return bar}
+// GENERATE libre (0.4): ritmo sorteado con la ocupación por paso del estilo y notas con su reparto de grados.
+// Uno de cada 4 compases sale de los patrones tipo (genTemplBar). Así cada GENERATE es una línea distinta.
 function genStyleBar(r,o){
+ const S=STYLES[o.style];
+ if(r()<.25)return genTemplBar(r,o);
+ const rows=SC(o.scale).rows,bar=Array.from({length:16},emptyStep);
+ const kx=o.kick>S.def.kick?Math.max(.03,1-(o.kick-S.def.kick)*3):1;
+ const target=clamp(Math.round(S.mean+(r()*3-1.5)+(o.density-S.def.density)*10),3,13);
+ const w=Array.from({length:16},(_,i)=>S.occ[i]*(i%4===0?kx:1)*(.5+r()));
+ for(let n=0;n<target;n++){const c=[];for(let i=0;i<16;i++)if(!bar[i][0])c.push([i,w[i]]);if(!c.length)break;bar[wpick(r,c)][0]=1}
+ const tonicP=clamp(S.tonic*(1-(o.move-S.def.move)*1.4),.05,.95);
+ let prev=null;
+ for(let i=0;i<16;i++){if(!bar[i][0])continue;let off;
+  if(prev===null)off=r()<.8?0:degPick(r,S);
+  else if(r()<S.rep)off=prev;
+  else if(S.walk&&r()<.6)off=walkFrom(r,prev,rows);
+  else off=r()<tonicP?0:degPick(r,S);
+  bar[i][1]=off;prev=off}
+ for(let i=0;i<16;i++)if(bar[i][0]){bar[i][2]=S.peaks.includes(i+1)?.95:+(.78+r()*.1).toFixed(2);
+  bar[i][3]=bar[i+1]&&bar[i+1][0]?1:(r()<.2?1.8:1.1)}
+ return snapBar(bar,rows);
+}
+function genTemplBar(r,o){
  const S=STYLES[o.style],rows=SC(o.scale).rows,t=S.pats[Math.floor(r()*S.pats.length)];
  const bar=Array.from({length:16},emptyStep);
  t.forEach(([st,off])=>{bar[st-1]=[1,off,0,1,0]});
@@ -407,14 +440,14 @@ window.MB={generate,rng,rhythm,STYLES};
 
 // ================= patrón =================
 const DEF_CUSTOM=[.3,.1,0,0,1,.8,.4,.08,0,.02];
-let PAT={steps:Array.from({length:64},emptyStep),seedA:1,seedV:1,custom:DEF_CUSTOM.slice(),style:'bcn'};
-const gopts=()=>({density:P.density,move:P.move,kick:P.kick,scale:P.scale,style:PAT.style});
+let PAT={steps:Array.from({length:128},emptyStep),seedA:1,seedV:1,custom:DEF_CUSTOM.slice(),style:'bcn'};
+const gopts=()=>({density:P.density,move:P.move,kick:P.kick,scale:P.scale,style:PAT.style,bars:NBARS[clamp(P.bars|0,0,3)]});
 function sendPattern(){emit('mbPattern',{steps:PAT.steps,seedA:PAT.seedA,seedV:PAT.seedV,custom:PAT.custom,style:PAT.style})}
 function regen(){PAT.steps=generate(PAT.seedA,PAT.seedV,gopts(),PAT.steps);sendPattern();paintGrid();paintInfo()}
 
 // ================= deshacer =================
 const undoS=[],redoS=[];
-function snap(){return JSON.stringify({P:{key:P.key,octave:P.octave,sbpm:P.sbpm,scale:P.scale,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
+function snap(){return JSON.stringify({P:{key:P.key,octave:P.octave,bars:P.bars,sbpm:P.sbpm,scale:P.scale,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
 function pushUndo(){const s=snap();if(undoS[undoS.length-1]!==s){undoS.push(s);if(undoS.length>100)undoS.shift()}redoS.length=0}
 function restore(s){const o=JSON.parse(s);for(const k in o.P)if(o.P[k]!==P[k])setG(k,o.P[k]);
  if(JSON.stringify(o.T)!==JSON.stringify(PAT)){PAT=o.T;sendPattern()}paint()}
@@ -472,6 +505,8 @@ const SOUND_TIPS=['Pure sine: the clean Mindshake sub','Triangle: a little more 
  'Round sine with a touch of 2nd and 3rd: reads on small speakers','Organ: octave, fifth and two octaves on top','FM growl on the attack that settles into a sub','Short knock with a pitch drop: plucky bass','Your own sound from NEW SOUND'];
 // tonalidades del bajo en los 12 temas de Mindshake 2023-2026 (Notion > ANÁLISIS DE GÉNEROS > MINDSHAKE)
 const KEY_USE=()=>ST(PAT.style).keys;
+// azul fuerte = de las más usadas en el estilo (al menos la mitad que la primera); azul suave = se usa poco
+function keyCls(i){const k=KEY_USE(),n=k[i];if(!n)return '';const mx=Math.max(...Object.values(k));return n*2>=mx?'blue':'blue soft'}
 let ddOpen=null;
 const pop=$('#keypop');
 function closeDD(){pop.classList.remove('show');ddOpen=null}
@@ -483,16 +518,22 @@ function openDD(anchor,items,cur,onPick){
  const r=anchor.getBoundingClientRect();pop.style.minWidth=Math.max(150,r.width)+'px';pop.classList.add('show');
  const h=pop.offsetHeight;pop.style.left=Math.min(innerWidth-pop.offsetWidth-8,r.left)+'px';pop.style.top=(r.bottom+8+h>innerHeight-8?Math.max(8,r.top-8-h):r.bottom+8)+'px';ddOpen=anchor}
 document.addEventListener('pointerdown',e=>{if(ddOpen&&!e.target.closest('#keypop')&&!e.target.closest('.dd'))closeDD()});
-$('#keyv').addEventListener('click',e=>openDD($('#keyv'),NAMES.map((n,i)=>({v:i,l:n,cls:KEY_USE()[i]?(KEY_USE()[i]>1?'blue':'blue soft'):'',em:KEY_USE()[i]?KEY_USE()[i]+' OF '+ST(PAT.style).n:'',
-  tip:KEY_USE()[i]?'Bass key in '+KEY_USE()[i]+' of '+ST(PAT.style).n+' '+ST(PAT.style).src+' tracks of this style':''})),P.key,v=>{pushUndo();setG('key',v);paint()}));
+$('#keyv').addEventListener('click',e=>openDD($('#keyv'),NAMES.map((n,i)=>({v:i,l:n,cls:keyCls(i),tip:keyCls(i)==='blue'?'One of the keys this style uses most':keyCls(i)?'This style uses it sometimes':''})),P.key,v=>{pushUndo();setG('key',v);paint()}));
 $('#keyv').addEventListener('wheel',e=>{e.preventDefault();pushUndo();setG('key',(P.key+(e.deltaY<0?1:11))%12);paint()},{passive:false});
-$('#scalev').addEventListener('click',()=>openDD($('#scalev'),SCALES.map((x,i)=>({v:i,l:x.name})),P.scale,setScale));
+$('#scalev').addEventListener('click',()=>{const mi=ST(PAT.style).minor;
+ openDD($('#scalev'),SCALES.map((x,i)=>({v:i,l:x.name,cls:mi?(i===0?'blue':i===1?'blue soft':''):'',em:mi?(i===0?'MOST USED':i===1?'LESS USED':''):'',
+  tip:mi&&i<2?(i===0?'Most tracks of this style are in a minor key':'Fewer tracks of this style are in a major key'):''})),P.scale,setScale)});
+$('#barsv').addEventListener('click',()=>openDD($('#barsv'),NBARS.map((b,i)=>({v:i,l:b+(b>1?' BARS':' BAR')})),P.bars,setBars));
+// BARS: al alargar se rellenan los compases nuevos con la misma idea; al acortar no se borra nada
+function setBars(v){const ob=NBARS[clamp(P.bars|0,0,3)],nb=NBARS[v];pushUndo();setG('bars',v);
+ if(nb>ob){const g=generate(PAT.seedA,PAT.seedV,{...gopts(),bars:nb},null);for(let i=ob*16;i<nb*16;i++)if(!PAT.steps[i][4])PAT.steps[i]=g[i];sendPattern()}
+ gridView=0;paint()}
 $('#stylev').addEventListener('click',()=>openDD($('#stylev'),STYLE_IDS.map(id=>({v:id,l:STYLES[id].l,tip:STYLES[id].tip})),PAT.style,setStyle));
 $('#octv').addEventListener('click',()=>openDD($('#octv'),[0,1,2].map(v=>({v,l:'OCTAVE '+v,tip:['Ableton octave 0 (32-62 Hz): pure sub','Ableton octave 1 (65-123 Hz): low bass that reads on monitors','Ableton octave 2 (130-250 Hz): bass line, no sub'][v]})),P.octave,v=>{pushUndo();setG('octave',v);paint()}));
 // STYLE: carga los valores del estilo (Cmd+Z lo deshace todo junto) y genera una línea nueva
 function setStyle(id){if(!STYLES[id]||id===PAT.style)return;pushUndo();PAT.style=id;const d=STYLES[id].def;
  for(const k in d)if(P[k]!==d[k])setG(k,d[k]);
- const rows=SC(P.scale).rows;PAT.steps.forEach(s=>{if(s[0])s[1]=snapTo(rows,s[1])});
+ const rows=SC(P.scale).rows;PAT.steps.forEach(s=>{s[4]=0;if(s[0])s[1]=snapTo(rows,s[1])});
  PAT.seedA=newSeed();PAT.seedV=newSeed();regen();paint();toast(STYLES[id].l+': style settings loaded')}
 $('#soundv').addEventListener('click',()=>openDD($('#soundv'),[{v:0,l:'SINE',tip:SOUND_TIPS[0]},'-',...SOUNDS.slice(1).map((n,i)=>({v:i+1,l:n,tip:SOUND_TIPS[i+1]}))],P.shape,v=>{pushUndo();setG('shape',v);paint()}));
 $('#sine').onclick=()=>{if(P.shape===0)return;pushUndo();setG('shape',0);paint()};
@@ -519,60 +560,98 @@ function canvas(cv){const w=cv.clientWidth,h=cv.clientHeight,k=Z*(window.deviceP
  const c=cv.getContext('2d');c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.setTransform(k,0,0,k,0,0);return {c,w,h,px:1/k}}
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const snapPx=(v,px)=>Math.round(v/px)*px;
-function geo(w,h){const L=52,T=18,R=4,B=4;return {L,T,cw:(w-L-R)/64,rh:(h-T-B)/11,w,h}}
-const noteCol=off=>off===0?css('--n0'):Math.abs(off)<=2?css('--n1'):(off===3||off===4)?css('--n3'):css('--n2');
-let hoverCell=null;
+// ================= piano roll (estilo Ableton) =================
+// Filas cromáticas de -5 a +12 semitonos sobre la tónica; se ven a la vez hasta 4 compases y con 8 sale la tira de compases arriba.
+const OFF_HI=12,OFF_LO=-5,NR=OFF_HI-OFF_LO+1,KW=48,VLH=26;
+let gridView=0,hoverCell=null;
+const nBars=()=>NBARS[clamp(P.bars|0,0,3)];
+function geo(w,h){const nb=nBars(),vis=Math.min(4,nb),ov=nb>4?20:0,T=ov+16,B=VLH+2,R=3;
+ return {nb,vis,ov,T,B,L:KW,cw:(w-KW-R)/(vis*16),rh:(h-T-B)/NR,w,h,v0:clamp(gridView,0,nb-vis)*16}}
+const isBlack=pc=>[1,3,6,8,10].includes(pc);
+const pcOf=off=>((P.key+off)%12+12)%12;
+const midiOf=off=>24+P.key+12*(P.octave|0)+off;
+const inScale=off=>SC(P.scale).rows.some(v=>((v-off)%12+12)%12===0);
+// colores de nota: tónica = verde, octava de arriba = ámbar, resto de grados = lila; más velocity = más intenso
+const NOTE_RGB={root:[93,202,165],oct:[241,194,125],deg:[175,169,236]};
+function noteFill(off,vel){const c=off===0||off===-12?NOTE_RGB.root:off>=12?NOTE_RGB.oct:NOTE_RGB.deg,a=.45+.55*vel;
+ return 'rgb('+c.map(v=>Math.round(v*a+40*(1-a))).join(',')+')'}
+function nextOn(S,i,tot){for(let j=i+1;j<i+tot;j++)if(S[j%tot][0])return j;return i+tot}
 
 function paintGrid(){
- const cv=$('#gcv'),{c,w,h,px}=canvas(cv),g=geo(w,h),R=ROWS(),root=P.key,S=PAT.steps;
- const swing=(P.swing-.5)*2;   // fracción de semicorchea que se retrasan las pares
- // fila de la tónica
- const r0=R.indexOf(0);c.fillStyle=css('--root');c.fillRect(g.L,g.T+r0*g.rh,g.cw*64,g.rh);
- // tiempos alternos
- for(let b=0;b<16;b+=2){c.fillStyle=css('--beat');c.fillRect(g.L+(b+1)*4*g.cw,g.T,4*g.cw,g.rh*11)}
- // líneas
- for(let r=0;r<=11;r++){c.fillStyle=css('--grid');c.fillRect(g.L,snapPx(g.T+r*g.rh,px),g.cw*64,px)}
- for(let i=0;i<=64;i++){const x=snapPx(g.L+i*g.cw,px);c.fillStyle=i%16===0?css('--grid2'):i%4===0?css('--grid'):'rgba(0,0,0,0)';c.fillRect(x,g.T,i%16===0?px*2:px,g.rh*11)}
- // etiquetas
- c.font='800 10px Nunito';c.textBaseline='middle';
- R.forEach((off,r)=>{const y=g.T+(r+.5)*g.rh;c.textAlign='left';c.fillStyle=off===0?css('--w'):css('--mu');c.fillText(NAMES[(root+off+120)%12],6,y);
-  c.textAlign='right';c.fillStyle=css('--mu');c.font='700 9px Nunito';c.fillText(off>0?'+'+off:String(off),g.L-6,y);c.font='800 10px Nunito'});
- c.textAlign='left';c.fillStyle=css('--mu');for(let b=0;b<4;b++)c.fillText(String(b+1),g.L+b*16*g.cw+4,g.T/2+1);
+ const cv=$('#gcv'),{c,w,h,px}=canvas(cv),g=geo(w,h),S=PAT.steps,tot=g.nb*16,steps=g.vis*16,light=settings.theme==='light';
+ const swing=(P.swing-.5)*2,gridR=g.L+steps*g.cw,rowsB=g.T+NR*g.rh;
+ if(play&&g.nb>4){const gb=Math.floor(pos*g.nb);const v=gb<4?0:4;if(v!==gridView){gridView=v;g.v0=v*16}}
+ // filas: tónica marcada, fuera de escala más oscuras (como el modo escala de Ableton)
+ for(let r=0;r<NR;r++){const off=OFF_HI-r,y=g.T+r*g.rh;
+  c.fillStyle=pcOf(off)===P.key%12&&(off===0||off===12||off===-12)?(light?'rgba(29,158,117,.13)':'rgba(93,202,165,.12)'):inScale(off)?(light?'rgba(255,255,255,.55)':'rgba(255,255,255,.035)'):(light?'rgba(18,16,21,.06)':'rgba(0,0,0,.22)');
+  c.fillRect(g.L,y,steps*g.cw,g.rh);c.fillStyle=light?'rgba(18,16,21,.08)':'rgba(0,0,0,.35)';c.fillRect(g.L,snapPx(y+g.rh,px)-px,steps*g.cw,px)}
+ // teclado
+ c.font='800 9px Nunito';c.textBaseline='middle';c.textAlign='left';
+ for(let r=0;r<NR;r++){const off=OFF_HI-r,pc=pcOf(off),y=g.T+r*g.rh,bk=isBlack(pc);
+  c.fillStyle=bk?'#121015':'#e4e4e7';c.fillRect(0,y,bk?KW-16:KW-2,g.rh-px);
+  if(bk){c.fillStyle='#e4e4e7';c.fillRect(KW-16,y,14,g.rh-px)}
+  if(off===0||off===12||pc===0){c.fillStyle=bk?'#e4e4e7':'#121015';c.fillText(NAMES[pc]+(Math.floor(midiOf(off)/12)-2),4,y+g.rh/2+.5)}}
+ // líneas verticales: semicorcheas, tiempos y compases
+ for(let i=0;i<=steps;i++){const x=snapPx(g.L+i*g.cw,px);c.fillStyle=i%16===0?css('--grid2'):i%4===0?css('--grid'):(light?'rgba(18,16,21,.035)':'rgba(255,255,255,.03)');c.fillRect(x,g.T,i%16===0?px*2:px,NR*g.rh+g.B)}
+ // regla de compases y, con 8 compases, la tira de arriba con todo el patrón
+ c.fillStyle=css('--mu');c.font='800 10px Nunito';
+ for(let b=0;b<g.vis;b++)c.fillText(String(g.v0/16+b+1),g.L+b*16*g.cw+4,g.ov+8);
+ if(g.ov){const ow=w-g.L-3;c.fillStyle=light?'rgba(18,16,21,.06)':'rgba(255,255,255,.05)';c.fillRect(g.L,1,ow,g.ov-4);
+  for(let b=1;b<g.nb;b++){c.fillStyle=css('--grid');c.fillRect(g.L+b/g.nb*ow,1,px,g.ov-4)}
+  for(let i=0;i<tot;i++){const s=S[i];if(!s[0])continue;c.fillStyle=noteFill(s[1],1);c.fillRect(g.L+i/tot*ow,1+(g.ov-7)*(1-(s[1]-OFF_LO)/(NR-1)),Math.max(2,ow/tot*.9),2)}
+  c.strokeStyle=css('--w');c.lineWidth=1.5;c.strokeRect(g.L+g.v0/tot*ow+.75,1.75,g.vis/g.nb*ow-1.5,g.ov-5.5)}
  // notas
- for(let i=0;i<64;i++){const s=S[i];
-  if(!s[0]){if(s[4]){c.fillStyle=css('--mu');c.fillRect(g.L+i*g.cw+g.cw*.3,g.h-7,g.cw*.4,2)}continue}
-  let nx=64;for(let j=i+1;j<i+64;j++)if(S[j%64][0]){nx=j;break}
-  const sh=i&1?swing:0,x=g.L+(i+sh)*g.cw+1,len=Math.min(P.gate*s[3],nx-i-sh+((nx&1)?swing:0)-.08),ww=Math.max(3,len*g.cw-1);
-  const r=rowOf(s[1]),y=g.T+r*g.rh+2,hh=g.rh-4;
-  c.globalAlpha=.55+.45*s[2];c.fillStyle=noteCol(s[1]);c.beginPath();c.roundRect?c.roundRect(x,y,ww,hh,3):c.rect(x,y,ww,hh);c.fill();c.globalAlpha=1;
-  if(s[4]){c.lineWidth=1.5;c.strokeStyle='#000';c.stroke();c.fillStyle='#000';c.fillRect(x+2,y+2,3,3)}}
+ c.font='900 9px Nunito';
+ for(let k=0;k<steps;k++){const i=g.v0+k,s=S[i];if(!s||!s[0]||s[1]>OFF_HI||s[1]<OFF_LO)continue;
+  const nx=nextOn(S,i,tot),sh=i&1?swing:0,len=Math.min(P.gate*s[3],nx-i-sh+((nx&1)?swing:0)-.06);
+  const x=snapPx(g.L+(k+sh)*g.cw,px)+px,ww=Math.max(3,Math.min(len*g.cw,gridR-x)-px),y=g.T+(OFF_HI-s[1])*g.rh+px,hh=g.rh-2*px;
+  c.fillStyle=noteFill(s[1],s[2]);c.fillRect(x,y,ww,hh);
+  c.strokeStyle='#000';c.lineWidth=s[4]?2:1;c.strokeRect(x+.5,y+.5,ww-1,hh-1);
+  if(ww>16&&hh>8){c.fillStyle='#121015';c.fillText(NAMES[pcOf(s[1])],x+3,y+hh/2+.5)}
+  if(s[4]){c.fillStyle='#000';c.fillRect(x+ww-6,y+2,4,4)}
+  // velocity
+  const vy=rowsB+2+(g.B-6)*(1-s[2]);c.fillStyle=css('--w');c.fillRect(x,vy,1.5,h-vy-2);c.beginPath();c.arc(x+.75,vy,2.6,0,7);c.fill()}
+ c.fillStyle=css('--mu');c.font='800 8px Nunito';c.fillText('VEL',6,rowsB+g.B/2);
  // celda bajo el ratón
- if(hoverCell){const [i,r]=hoverCell;c.strokeStyle=css('--grid2');c.lineWidth=1;c.strokeRect(g.L+i*g.cw+.5,g.T+r*g.rh+.5,g.cw-1,g.rh-1)}
+ if(hoverCell){const [i,off]=hoverCell,k=i-g.v0;if(k>=0&&k<steps){c.strokeStyle=css('--grid2');c.lineWidth=1;c.strokeRect(g.L+k*g.cw+.5,g.T+(OFF_HI-off)*g.rh+.5,g.cw-1,g.rh-1)}}
  // cabezal
- if(play){const x=snapPx(g.L+pos*64*g.cw,px);c.fillStyle=css('--w');c.fillRect(x,g.T-4,2,g.rh*11+4)}
+ if(play){const k=pos*tot-g.v0;if(k>=0&&k<=steps){const x=snapPx(g.L+k*g.cw,px);c.fillStyle=css('--w');c.fillRect(x,g.ov+2,2,NR*g.rh+g.T-g.ov)}}
 }
 (function(){const cv=$('#gcv');let drag=null;
- const cell=e=>{const r=cv.getBoundingClientRect(),g=geo(cv.clientWidth,cv.clientHeight);const x=(e.clientX-r.left)/r.width*cv.clientWidth,y=(e.clientY-r.top)/r.height*cv.clientHeight;
-  if(x<g.L||y<g.T)return null;return [clamp(Math.floor((x-g.L)/g.cw),0,63),clamp(Math.floor((y-g.T)/g.rh),0,10)]};
+ const pt=e=>{const r=cv.getBoundingClientRect();return [(e.clientX-r.left)/r.width*cv.clientWidth,(e.clientY-r.top)/r.height*cv.clientHeight]};
+ const zone=e=>{const g=geo(cv.clientWidth,cv.clientHeight),[x,y]=pt(e);
+  if(g.ov&&y<g.ov)return {z:'ov',bar:clamp(Math.floor((x-g.L)/(cv.clientWidth-g.L-3)*g.nb),0,g.nb-1),g};
+  if(x<g.L||y<g.T)return null;const k=clamp(Math.floor((x-g.L)/g.cw),0,g.vis*16-1),i=g.v0+k;
+  if(y>=g.T+NR*g.rh)return {z:'vel',i,v:clamp(1-(y-g.T-NR*g.rh-2)/(g.B-6),.05,1),g};
+  return {z:'grid',i,off:clamp(OFF_HI-Math.floor((y-g.T)/g.rh),OFF_LO,OFF_HI),g}};
+ // para las pruebas: posición en pantalla de un paso y un semitono
+ window.MB.cellXY=(i,off)=>{const r=cv.getBoundingClientRect(),g=geo(cv.clientWidth,cv.clientHeight),sx=r.width/cv.clientWidth,sy=r.height/cv.clientHeight;
+  return [r.left+(g.L+(i-g.v0+.5)*g.cw)*sx,r.top+(g.T+(OFF_HI-off+.5)*g.rh)*sy]};
  const S=()=>PAT.steps;
- cv.addEventListener('pointerdown',e=>{const c=cell(e);if(!c)return;const [i,r]=c,off=ROWS()[r],s=S()[i];pushUndo();
-  if(e.shiftKey){s[4]=s[4]?0:1;sendPattern();paintGrid();return}
-  if(s[0]&&rowOf(s[1])===r)drag={i,moved:false,fresh:false};
-  else{S()[i]=[1,off,s[0]?s[2]:.85,s[0]?s[3]:1,1];drag={i,moved:false,fresh:true};sendPattern()}
-  cv.setPointerCapture(e.pointerId);cv.classList.add('mv');paintGrid()});
- cv.addEventListener('pointermove',e=>{const c=cell(e);
-  if(!drag){const hc=c?c.join():'',oc=hoverCell?hoverCell.join():'';if(hc!==oc){hoverCell=c;paintGrid()}return}
-  if(!c)return;const [i,r]=c,off=ROWS()[r],src=S()[drag.i];
-  if(i===drag.i&&rowOf(src[1])===r)return;
-  const moved=[1,off,src[2],src[3],1];
-  if(i!==drag.i)S()[drag.i]=emptyStep();
-  S()[i]=moved;drag.i=i;drag.moved=true;hoverCell=c;sendPattern();paintGrid();paintInfo()});
- const up=()=>{if(!drag)return;if(!drag.moved&&!drag.fresh){S()[drag.i]=[0,0,.85,1,1];sendPattern()}drag=null;cv.classList.remove('mv');paintGrid();paintInfo()};
+ cv.addEventListener('pointerdown',e=>{const z=zone(e);if(!z)return;
+  if(z.z==='ov'){gridView=clamp(z.bar-1,0,z.g.nb-z.g.vis);paintGrid();return}
+  const s=S()[z.i];
+  if(z.z==='vel'){if(!s[0])return;pushUndo();drag={vel:true};s[2]=+z.v.toFixed(2);sendPattern();cv.setPointerCapture(e.pointerId);paintGrid();return}
+  pushUndo();
+  if(e.shiftKey){s[4]=s[4]?0:1;sendPattern();paintGrid();paintInfo();return}
+  if(s[0]&&s[1]===z.off)drag={i:z.i,moved:false,fresh:false};
+  else{S()[z.i]=[1,z.off,s[0]?s[2]:.85,s[0]?s[3]:1,s[4]];drag={i:z.i,moved:false,fresh:true};sendPattern()}
+  cv.setPointerCapture(e.pointerId);cv.classList.add('mv');paintGrid();paintInfo()});
+ cv.addEventListener('pointermove',e=>{const z=zone(e);
+  if(!drag){const hc=z&&z.z==='grid'?[z.i,z.off]:null,a=hc?hc.join():'',b=hoverCell?hoverCell.join():'';if(a!==b){hoverCell=hc;paintGrid()}return}
+  if(!z)return;
+  if(drag.vel){if(z.z!=='grid'&&S()[z.i][0]){S()[z.i][2]=+(z.z==='vel'?z.v:1).toFixed(2);sendPattern();paintGrid()}return}
+  if(z.z!=='grid')return;const src=S()[drag.i];
+  if(z.i===drag.i&&src[1]===z.off)return;
+  const moved=[1,z.off,src[2],src[3],src[4]];
+  if(z.i!==drag.i)S()[drag.i]=emptyStep();
+  S()[z.i]=moved;drag.i=z.i;drag.moved=true;hoverCell=[z.i,z.off];sendPattern();paintGrid();paintInfo()});
+ const up=()=>{if(!drag)return;if(!drag.vel&&!drag.moved&&!drag.fresh){S()[drag.i]=emptyStep();sendPattern()}drag=null;cv.classList.remove('mv');paintGrid();paintInfo()};
  cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
  cv.addEventListener('pointerleave',()=>{if(!drag&&hoverCell){hoverCell=null;paintGrid()}});
 })();
 
-function paintInfo(){const n=PAT.steps.filter(s=>s[0]).length,l=PAT.steps.filter(s=>s[4]).length;
+function paintInfo(){const act=PAT.steps.slice(0,nBars()*16),n=act.filter(s=>s[0]).length,l=act.filter(s=>s[4]).length;
  $('#pinfo').textContent=NAMES[P.key]+' '+SC(P.scale).short+' · '+n+' NOTES'+(l?' · '+l+' LOCKED':'')}
 function paintPlay(){const b=$('#play');b.classList.toggle('on',play===1);b.classList.toggle('host',play===2);
  b.querySelector('span').textContent=play===1?'STOP':play===2?'ABLETON':'PLAY';
@@ -581,7 +660,7 @@ function paintPlay(){const b=$('#play');b.classList.toggle('on',play===1);b.clas
 function paint(){
  $('#keyt').textContent=NAMES[P.key];
  const S=ST(PAT.style);$('#stylet').textContent=S.l;$('#stylev').dataset.tip='Style of the line. '+S.l+': '+S.tip+'. Changing style loads its settings';
- $('#octt').textContent=P.octave|0;
+ $('#octt').textContent=P.octave|0;$('#barst').textContent=NBARS[clamp(P.bars|0,0,3)];
  $('#scalet').textContent=SC(P.scale).name;
  $('#soundt').textContent=SOUNDS[clamp(P.shape|0,0,8)];$('#sine').classList.toggle('on',P.shape===0);
  const bp=settings.standalone?P.sbpm:bpm;$('#bpmt').textContent=Math.round(bp);
@@ -620,14 +699,15 @@ if(window.matchMedia)matchMedia('(resolution: 2dppx)').addEventListener&&matchMe
 on('mbSettings',v=>{if(!v)return;Object.assign(settings,v);paintSettings();paint()});
 on('mbState',v=>{if(!v)return;let ch=false;
  if(v.p){for(const k in v.p){if(k===dragging)continue;const x=v.p[k];P[k]=typeof x==='boolean'?+x:x}
-  ['key','octave','shape','scale'].forEach(k=>P[k]=Math.round(P[k]));ch=true}
+  ['key','octave','bars','shape','scale'].forEach(k=>P[k]=Math.round(P[k]));ch=true}
  if('play' in v&&v.play!==play){play=v.play;ch=true}
  if('bpm' in v&&v.bpm!==bpm){bpm=v.bpm;ch=true}
  if('midiIn' in v&&!!v.midiIn!==midiIn){midiIn=!!v.midiIn;ch=true}
  if('pos' in v&&(v.pos!==pos||play)){pos=v.pos;if(!ch)paintGrid()}
  if(ch)paint()});
-on('mbPattern',v=>{if(!v||!Array.isArray(v.steps)||v.steps.length!==64)return;
- PAT={steps:v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]),seedA:v.seedA||1,seedV:v.seedV||1,custom:Array.isArray(v.custom)&&v.custom.length===10?v.custom.map(Number):DEF_CUSTOM.slice(),style:STYLES[v.style]?v.style:'bcn'};paint()});
+on('mbPattern',v=>{if(!v||!Array.isArray(v.steps)||(v.steps.length!==64&&v.steps.length!==128))return;
+ const st=v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]);while(st.length<128)st.push(emptyStep());
+ PAT={steps:st,seedA:v.seedA||1,seedV:v.seedV||1,custom:Array.isArray(v.custom)&&v.custom.length===10?v.custom.map(Number):DEF_CUSTOM.slice(),style:STYLES[v.style]?v.style:'bcn'};paint()});
 on('mbToast',v=>{if(v&&v.msg)toast(v.msg)});
 
 // ================= modo navegador (sin plugin) =================

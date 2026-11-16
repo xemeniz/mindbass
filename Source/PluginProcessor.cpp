@@ -9,6 +9,7 @@ APVTS::ParameterLayout MBProcessor::layout()
     using PID = juce::ParameterID;
     auto pct = juce::AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return juce::String (juce::roundToInt (v * 100)) + " %"; });
     l.add (std::make_unique<juce::AudioParameterInt> (PID { "key", 1 }, "Key", 0, 11, 5));                     // F
+    l.add (std::make_unique<juce::AudioParameterChoice> (PID { "bars", 4 }, "Bars", juce::StringArray { "1", "2", "4", "8" }, 2));   // largo del patrón
     l.add (std::make_unique<juce::AudioParameterInt> (PID { "octave", 3 }, "Octave", 0, 2, 0));               // octava de Ableton
     l.add (std::make_unique<juce::AudioParameterChoice> (PID { "scale", 2 }, "Scale", juce::StringArray { "Minor", "Major", "Phrygian", "Dorian" }, 0));
     l.add (std::make_unique<juce::AudioParameterFloat> (PID { "swing", 1 }, "Swing", juce::NormalisableRange<float> (0.5f, 0.75f, 0.005f), 0.57f, pct));
@@ -33,8 +34,8 @@ MBProcessor::MBProcessor()
     pKey = apvts.getRawParameterValue ("key"); pScale = apvts.getRawParameterValue ("scale"); pSwing = apvts.getRawParameterValue ("swing");
     pGate = apvts.getRawParameterValue ("gate"); pKick = apvts.getRawParameterValue ("kick"); pShape = apvts.getRawParameterValue ("shape");
     pDrive = apvts.getRawParameterValue ("drive"); pMid = apvts.getRawParameterValue ("mid"); pFilter = apvts.getRawParameterValue ("filter");
-    pDecay = apvts.getRawParameterValue ("decay"); pSbpm = apvts.getRawParameterValue ("sbpm"); pOct = apvts.getRawParameterValue ("octave");
-    for (auto id : { "key", "swing", "gate", "octave" }) apvts.addParameterListener (id, this);
+    pDecay = apvts.getRawParameterValue ("decay"); pSbpm = apvts.getRawParameterValue ("sbpm"); pOct = apvts.getRawParameterValue ("octave"); pBars = apvts.getRawParameterValue ("bars");
+    for (auto id : { "key", "swing", "gate", "octave", "bars" }) apvts.addParameterListener (id, this);
     loadGlobal();
     rebuild();
 }
@@ -42,7 +43,7 @@ MBProcessor::MBProcessor()
 MBProcessor::~MBProcessor()
 {
     cancelPendingUpdate();
-    for (auto id : { "key", "swing", "gate", "octave" }) apvts.removeParameterListener (id, this);
+    for (auto id : { "key", "swing", "gate", "octave", "bars" }) apvts.removeParameterListener (id, this);
 }
 
 // ------------------------------------------------------------------ ajustes globales
@@ -72,9 +73,11 @@ void MBProcessor::saveGlobal()
 // ------------------------------------------------------------------ patrón
 void MBProcessor::rebuild()
 {
-    auto notes = mbass::buildNotes (pattern, (int) pKey->load(), pSwing->load(), pGate->load(), (int) pOct->load());
+    const int nb = bars();
+    auto notes = mbass::buildNotes (pattern, (int) pKey->load(), pSwing->load(), pGate->load(), (int) pOct->load(), nb);
     auto& b = evBufs[(size_t) writeIdx];
-    b.ev = mbass::buildEvents (notes);
+    b.ev = mbass::buildEvents (notes, nb);
+    b.loop = mbass::loopBeats (nb);
     evIdx.store (writeIdx);
     writeIdx = (writeIdx + 1) % 3;
 }
@@ -107,9 +110,10 @@ juce::var MBProcessor::patternVar() const
 void MBProcessor::setPatternVar (const juce::var& v)
 {
     auto* a = v.getProperty ("steps", juce::var()).getArray();
-    if (a == nullptr || a->size() != mbass::kSteps) return;
+    // proyectos de la 0.3 o anteriores traen 64 pasos (4 compases): el resto queda vacío
+    if (a == nullptr || (a->size() != mbass::kSteps && a->size() != 64)) return;
     mbass::Pattern p;
-    for (int i = 0; i < mbass::kSteps; ++i)
+    for (int i = 0; i < a->size(); ++i)
     {
         const auto& s = (*a)[i];
         if (! s.isArray() || s.size() < 5) return;
@@ -233,12 +237,14 @@ void MBProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // ---- eventos del patrón dentro de este bloque ----
     if (running && ! midiNow)
     {
-        const auto& ev = evBufs[(size_t) evIdx.load()].ev;
+        const auto& eb = evBufs[(size_t) evIdx.load()];
+        const auto& ev = eb.ev;
+        const double loop = eb.loop;
         const double p0 = ppq, p1 = ppq + n * ppqPerSample;
         for (auto& e : ev)
         {
-            double t = e.beat + mbass::kLoopBeats * std::ceil ((p0 - e.beat) / mbass::kLoopBeats - 1.0e-12);
-            for (; t < p1; t += mbass::kLoopBeats)
+            double t = e.beat + loop * std::ceil ((p0 - e.beat) / loop - 1.0e-12);
+            for (; t < p1; t += loop)
                 if (t >= p0) evs.add ({ juce::jlimit (0, n - 1, (int) ((t - p0) / ppqPerSample)), e.note, e.vel, e.on });
         }
     }
@@ -268,7 +274,7 @@ void MBProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuff
     const double end = ppq + n * ppqPerSample;
     lastEnd = running ? end : -1.0;
     if (preview && ! host) previewPpq = end;
-    posBeats = running ? std::fmod (juce::jmax (0.0, ppq), mbass::kLoopBeats) : 0.0;
+    posBeats = running ? std::fmod (juce::jmax (0.0, ppq), evBufs[(size_t) evIdx.load()].loop) : 0.0;
     midi.clear();
 }
 
@@ -311,14 +317,14 @@ juce::File MBProcessor::exportClip (bool audio)
     const int key = (int) pKey->load();
     if (! audio)
     {
-        auto mf = mbass::makeMidi (pattern, key, pSwing->load(), pGate->load(), (int) pOct->load());
+        auto mf = mbass::makeMidi (pattern, key, pSwing->load(), pGate->load(), (int) pOct->load(), bars());
         juce::FileOutputStream os (f);
         if (! os.openedOk() || ! mf.writeTo (os)) return {};
         return f;
     }
     juce::AudioBuffer<float> buf;
     const double rate = sr > 8000.0 ? sr : 48000.0;
-    mbass::renderAudio (buf, rate, pattern, key, pSwing->load(), pGate->load(), currentBpm(), sound(), pKick->load(), (int) pOct->load());
+    mbass::renderAudio (buf, rate, pattern, key, pSwing->load(), pGate->load(), currentBpm(), sound(), pKick->load(), (int) pOct->load(), bars());
     juce::WavAudioFormat wav;
     auto* os = new juce::FileOutputStream (f);
     if (! os->openedOk()) { delete os; return {}; }

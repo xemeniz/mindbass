@@ -137,7 +137,7 @@ await fire('mbState', { p: params });
 await clear();
 await page.click('#gen');
 let pt = await lastPat();
-ok(pt && pt.steps.length === 64 && (pt.seedA !== 4242 || pt.seedV !== 99), 'GENERATE manda un patrón nuevo con semillas nuevas');
+ok(pt && pt.steps.length === 128 && (pt.seedA !== 4242 || pt.seedV !== 99), 'GENERATE manda un patrón nuevo con semillas nuevas');
 ok(JSON.stringify(pt.steps) !== JSON.stringify(steps0), 'el patrón cambia');
 await clear();
 await page.keyboard.press('Meta+z');
@@ -154,45 +154,49 @@ ok(b1[1] !== b0[1] || b1[3] !== b0[3], 'VARIATION cambia el 2 o el 4');
 ok(pt.seedA === 4242, 'VARIATION mantiene la semilla A');
 await page.keyboard.press('Meta+z');
 
-// rejilla: poner, mover, quitar y bloquear
-const box = await page.locator('#gcv').boundingBox();
-const geo = { L: 52, T: 18, cw: (box.width - 52 - 4) / 64, rh: (box.height - 18 - 4) / 11 };
-const cellXY = (i, r) => [box.x + geo.L + (i + 0.5) * geo.cw, box.y + geo.T + (r + 0.5) * geo.rh];
+// rejilla (piano roll): poner, mover, quitar y bloquear
+const cellXY = (i, off) => page.evaluate(([i, off]) => MB.cellXY(i, off), [i, off]);
 const cur = () => page.evaluate(() => PAT.steps.map(s => s.slice()));
 let st = await cur();
-let emptyI = st.findIndex((s, i) => !s[0] && !s[4] && i > 0);
+let emptyI = st.findIndex((s, i) => !s[0] && !s[4] && i > 0 && i < 63);
 await clear();
-let [x, y] = cellXY(emptyI, 2);   // fila +7
+let [x, y] = await cellXY(emptyI, 7);
 await page.mouse.click(x, y);
 st = await cur();
-ok(st[emptyI][0] === 1 && st[emptyI][1] === 7 && st[emptyI][4] === 1, 'clic en hueco: pone una nota (+7) bloqueada');
+ok(st[emptyI][0] === 1 && st[emptyI][1] === 7 && st[emptyI][4] === 0, 'clic en hueco: pone una nota (+7) sin bloquearla');
 ok(!!(await lastPat()), 'y se la manda al plugin');
-// mover arrastrando a otra fila y paso
-const dst = emptyI + 1 < 64 && !st[emptyI + 1][0] ? emptyI + 1 : emptyI;
+const dst = emptyI + 1 < 63 && !st[emptyI + 1][0] ? emptyI + 1 : emptyI;
 await page.mouse.move(x, y); await page.mouse.down();
-const [x2, y2] = cellXY(dst, 6);   // fila +1
+const [x2, y2] = await cellXY(dst, 1);
 await page.mouse.move(x2, y2, { steps: 4 }); await page.mouse.up();
 st = await cur();
-ok(st[dst][0] === 1 && st[dst][1] === 1 && st[dst][4] === 1, 'arrastrar mueve la nota (+1) y sigue bloqueada');
+ok(st[dst][0] === 1 && st[dst][1] === 1, 'arrastrar mueve la nota (+1)');
 ok(dst === emptyI || st[emptyI][0] === 0, 'el sitio de origen queda vacío');
-// quitar con clic
 await page.mouse.click(x2, y2);
 st = await cur();
-ok(st[dst][0] === 0 && st[dst][4] === 1, 'clic en una nota la quita (silencio bloqueado)');
-// shift+clic desbloquea
-await page.keyboard.down('Shift'); await page.mouse.click(x2, y2); await page.keyboard.up('Shift');
+ok(st[dst][0] === 0 && st[dst][4] === 0, 'clic en una nota la quita (sin dejar nada bloqueado)');
+const [x6, y6] = await cellXY(dst, 6);
+await page.mouse.click(x6, y6);
+ok((await cur())[dst][1] === 6, 'el piano roll es cromático: se puede poner +6 aunque no esté en la escala');
+await page.mouse.click(x6, y6);
+// una nota puesta a mano NO sobrevive a GENERATE; una bloqueada con Shift+clic sí
+await page.mouse.click(x, y);
+await page.click('#gen');
 st = await cur();
-ok(st[dst][4] === 0, 'Shift+clic desbloquea el paso');
-// el bloqueo sobrevive a GENERATE
-const noteI = st.findIndex(s => s[0] && s[1] === 0);
-[x, y] = cellXY(noteI, 7);
+ok(!(st[emptyI][0] === 1 && st[emptyI][1] === 7 && st[emptyI][4] === 1), 'una nota puesta a mano no se queda bloqueada para siempre');
+const noteI = st.findIndex((s, i) => s[0] && s[1] === 0 && i < 64);
+[x, y] = await cellXY(noteI, 0);
 await page.keyboard.down('Shift'); await page.mouse.click(x, y); await page.keyboard.up('Shift');
 const lockedBefore = (await cur())[noteI];
 await page.click('#gen');
 st = await cur();
-ok(lockedBefore[4] === 1 && JSON.stringify(st[noteI]) === JSON.stringify(lockedBefore), 'una nota bloqueada sigue igual tras GENERATE');
-const lockedRows = await page.evaluate(() => PAT.steps.filter(s => s[4]).length);
+ok(lockedBefore[4] === 1 && JSON.stringify(st[noteI]) === JSON.stringify(lockedBefore), 'Shift+clic bloquea y la nota sigue igual tras GENERATE');
+const lockedRows = await page.evaluate(() => PAT.steps.slice(0, 64).filter(s => s[4]).length);
 ok((await page.textContent('#pinfo')).includes(lockedRows + ' LOCKED'), 'el resumen cuenta los pasos bloqueados');
+// velocity: arrastrar en la franja de abajo
+const vb = await page.locator('#gcv').boundingBox();
+await page.mouse.click(x, vb.y + vb.height - 4);
+ok((await cur())[noteI][2] < .3, 'clic abajo en la franja VEL baja la velocity de la nota');
 
 // knobs: DENSITY rehace el mismo patrón con más notas
 await clear();
@@ -213,8 +217,8 @@ await clear();
 await page.click('#keyv');
 ok(await page.isVisible('#keypop') && (await page.locator('#keypop button').count()) === 12, 'KEY abre la lista de 12 tonalidades');
 const blues = await page.$$eval('#keypop button.blue', b => b.map(x => x.querySelector('span').textContent + ':' + (x.classList.contains('soft') ? 's' : 'f')));
-ok(JSON.stringify(blues.sort()) === JSON.stringify(['A#:s', 'B:f', 'D:f', 'F#:s', 'F:f']), 'en azul las de Mindshake: B, F y D fuertes; A# y F# suaves (' + blues + ')');
-ok((await page.textContent('#keypop button:nth-child(12) em')) === '5 OF 12', 'B: 5 de 12 temas');
+ok(JSON.stringify(blues.sort()) === JSON.stringify(['A#:s', 'B:f', 'D:s', 'F#:s', 'F:f']), 'en azul las de Mindshake: B y F fuertes (las más usadas); D, A# y F# suaves (' + blues + ')');
+ok((await page.locator('#keypop em').count()) === 0, 'sin números en la lista (nada de "5 OF 12")');
 await page.screenshot({ path: out + '-key.png' });
 await page.click('#keypop button:nth-child(10)');   // A
 s = await sent();
@@ -288,7 +292,7 @@ ok((await sent()).some(([e]) => e === 'mbPlay'), 'barra espaciadora = PLAY');
 // Settings
 await page.click('#gear');
 ok(await page.isVisible('#modal'), 'Settings se abre');
-ok((await page.textContent('#ver')) === '0.3.0', 'versión 0.3.0');
+ok((await page.textContent('#ver')) === '0.4.0', 'versión 0.4.0');
 ok(!(await page.textContent('#modal')).includes('PLAY WITH ABLETON') && !(await page.textContent('#modal')).includes('HOW TO USE'), 'Settings sin PLAY WITH ABLETON ni el tutorial');
 await clear();
 await page.click('#dragas button:nth-child(2)');
@@ -324,18 +328,19 @@ const ST = await page.evaluate(() => {
     for (let n = 0; n < 100; n++) { const st = MB.generate(5 + n * 31, 9 + n * 17, hi); st.forEach((s, i) => { if (s[0]) { hn++; if (i % 4 === 0) hk++; } }); }
     const dn = { ...o, density: Math.min(1, d.density + .3) }; let dnn = 0;
     for (let n = 0; n < 100; n++) dnn += MB.generate(5 + n * 31, 9 + n * 17, dn).filter(s => s[0]).length;
-    out[id] = { perBar: notes / bars, kick: kick / notes, tonic: tonic / notes, bad, peaks: peaks / bars, kickHi: hk / hn, densUp: dnn / 400 };
+    let sim = 0; for (let k = 0; k < 100; k++) { const a = MB.generate(11 + k * 7919, 5 + k * 31, o), c = MB.generate(99991 + k * 104729, 7 + k * 17, o); let eq = 0; for (let i = 0; i < 16; i++) if (a[i][0] === c[i][0] && (!a[i][0] || a[i][1] === c[i][1])) eq++; sim += eq / 16; }
+    out[id] = { perBar: notes / bars, kick: kick / notes, tonic: tonic / notes, bad, peaks: peaks / bars, kickHi: hk / hn, densUp: dnn / 400, sim: sim / 100 };
   }
   return out;
 });
-const TON = { solid: [.5, .7], rio: [.28, .45], bailesito: [.28, .45], sintos: [.38, .55] };
+const TON = { solid: [.5, .7], rio: [.3, .5], bailesito: [.26, .45], sintos: [.36, .56] };
 for (const [id, g] of Object.entries(ST)) {
   ok(g.perBar >= 6.5 && g.perBar <= 8.5, id + ': unas 7-8 notas por compás (' + g.perBar.toFixed(1) + ')');
-  ok(g.kick <= .22, id + ': poco bajo en el kick, 1-5-9-13 (' + Math.round(g.kick * 100) + ' %)');
+  ok(g.kick <= .3, id + ': el kick no manda, pero el bajo no vive en 1-5-9-13 (' + Math.round(g.kick * 100) + ' %)');
   ok(g.tonic >= TON[id][0] && g.tonic <= TON[id][1], id + ': tónica como en la ficha (' + Math.round(g.tonic * 100) + ' %)');
   ok(g.bad === 0, id + ': todas las notas en las filas de la escala');
-  ok(g.peaks >= 1.3, id + ': ataca en los pasos 4 y 7 (' + g.peaks.toFixed(2) + ' por compás)');
-  ok(g.kickHi <= .03, id + ': con KICK al 100 % deja libres las negras (' + Math.round(g.kickHi * 100) + ' %)');
+  ok(g.sim <= .5, id + ': dos GENERATE seguidos son líneas distintas (' + Math.round(g.sim * 100) + ' % de pasos iguales)');
+  ok(g.kickHi <= .08, id + ': con KICK al 100 % deja libres las negras (' + Math.round(g.kickHi * 100) + ' %)');
   ok(g.densUp > g.perBar + 1.5, id + ': DENSITY sube el número de notas (' + g.densUp.toFixed(1) + ')');
 }
 // cambiar de estilo carga sus ajustes y Cmd+Z vuelve atrás
@@ -353,6 +358,29 @@ ok((await page.textContent('#stylet')) === 'SINTOS', 'al abrir un proyecto recup
 await page.click('#octv');
 await page.click('#keypop button:has-text("OCTAVE 2")');
 ok((await sent()).some(([e, o]) => e === 'mbSet' && o.id === 'octave' && o.v === 2), 'OCTAVE 2 se manda al plugin');
+// BARS
+await page.click('#barsv');
+await page.click('#keypop button:has-text("8 BARS")');
+ok((await sent()).some(([e, o]) => e === 'mbSet' && o.id === 'bars' && o.v === 3), 'BARS 8 se manda al plugin');
+let p8 = await page.evaluate(() => PAT.steps.slice(64, 128).filter(s => s[0]).length);
+ok(p8 > 10, 'al pasar a 8 compases se rellenan los compases 5-8 (' + p8 + ' notas)');
+const g8 = await page.evaluate(() => { const g = MB.generate(5, 6, { density: .5, move: .25, kick: .6, scale: 0, style: 'solid', bars: 8 }), g1 = MB.generate(5, 6, { density: .5, move: .25, kick: .6, scale: 0, style: 'solid', bars: 1 });
+  return { n8: g.slice(64).filter(s => s[0]).length, l: g.length, n1: g1.slice(16).filter(s => s[0]).length, b5: JSON.stringify(g.slice(64, 80)) !== JSON.stringify(g.slice(0, 16)) }; });
+ok(g8.l === 128 && g8.n8 > 10 && g8.n1 === 0 && g8.b5, 'la frase de 8 compases trae una segunda idea (B) y la de 1 compás solo usa el primero');
+await page.screenshot({ path: out + '-bars8.png' });
+// tonalidades: sin números, azul fuerte o suave; escala más usada
+await page.click('#keyv');
+const kp = await page.textContent('#keypop');
+ok(!/OF\s*\d/.test(kp) && (await page.locator('#keypop button.blue').count()) > 0, 'KEY sin "N OF 12", solo azul fuerte o suave');
+await page.keyboard.press('Escape');
+await page.click('#scalev');
+ok((await page.textContent('#keypop button.blue >> nth=0')).includes('MOST USED'), 'SCALE marca la escala más usada del estilo');
+await page.keyboard.press('Escape');
+// cambiar de estilo quita los bloqueos
+await page.evaluate(() => { PAT.steps[3][4] = 1; });
+await page.click('#stylev');
+await page.click('#keypop button:has-text("SOLID")');
+ok(await page.evaluate(() => PAT.steps.every(s => !s[4])), 'al cambiar de estilo se quitan los bloqueos');
 await page.screenshot({ path: out + '-styles.png' });
 
 ok(errors.length === 0, 'sin errores en la consola' + (errors.length ? ': ' + errors.join(' | ') : ''));

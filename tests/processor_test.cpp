@@ -159,7 +159,14 @@ int main()
 
         // patrón como JSON (lo que manda la interfaz)
         auto v = p.patternVar();
-        CHECK (v["steps"].size() == 64, "la interfaz recibe 64 pasos");
+        CHECK (v["steps"].size() == 128, "la interfaz recibe 128 pasos (hasta 8 compases)");
+        {
+            auto old = juce::JSON::parse (juce::JSON::toString (v));
+            auto* st = old.getProperty ("steps", juce::var()).getArray();
+            st->removeRange (64, 64);
+            MBProcessor o; o.setPatternVar (old);
+            CHECK (o.getPattern()[18].off == -2 && ! o.getPattern()[70].on, "abre proyectos de la 0.3 (64 pasos)");
+        }
         MBProcessor r; r.setPatternVar (v);
         CHECK (r.getPattern()[18].off == -2, "y lo puede devolver tal cual");
         juce::var bad = juce::JSON::parse ("{\"steps\":[[1,0,1,1,0]]}");

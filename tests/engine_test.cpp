@@ -67,6 +67,16 @@ int main()
         auto mf = mbass::makeMidi (mbass::defaultPattern(), 5, 0.5, 0.7, 2);
         int lo = 127; for (auto* e : *mf.getTrack (0)) if (e->message.isNoteOn()) lo = juce::jmin (lo, e->message.getNoteNumber());
         CHECK (lo >= 29 + 24 - 5, "el MIDI exportado lleva la octava (OCTAVE 2: nota más grave %d)", lo);
+        auto p8 = mbass::defaultPattern();
+        for (int i = 0; i < 64; ++i) p8[(size_t) (64 + i)] = p8[(size_t) i];
+        auto m8 = mbass::makeMidi (p8, 5, 0.5, 0.7, 0, 8), m1 = mbass::makeMidi (p8, 5, 0.5, 0.7, 0, 1);
+        double end8 = 0, end1 = 0; int c1 = 0;
+        for (auto* e : *m8.getTrack (0)) end8 = juce::jmax (end8, e->message.getTimeStamp());
+        for (auto* e : *m1.getTrack (0)) { end1 = juce::jmax (end1, e->message.getTimeStamp()); if (e->message.isNoteOn()) ++c1; }
+        CHECK (std::abs (end8 - 32 * 960) < 1 && std::abs (end1 - 4 * 960) < 1, "BARS 8 = clip de 32 tiempos y BARS 1 = 4 tiempos (%.0f / %.0f)", end8 / 960, end1 / 960);
+        CHECK (c1 == 10, "con BARS 1 solo suena el primer compás (%d notas)", c1);
+        auto n2 = mbass::buildNotes (p8, 5, 0.5, 0.7, 0, 2);
+        CHECK (! n2.empty() && n2.back().beat < 8.0, "BARS 2: todas las notas dentro de 8 tiempos");
     }
     CHECK (mbass::keyName (5, 0) == "F MIN" && mbass::keyName (10, 1) == "A# MAJ" && mbass::keyName (11, 2) == "B PHRYG" && mbass::keyName (2, 3) == "D DOR", "nombres de tonalidad y escala");
     {
