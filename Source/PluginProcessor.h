@@ -77,6 +77,7 @@ private:
 
     mbass::Pattern pattern = mbass::defaultPattern();     // solo hilo de mensajes
     juce::int64 seedA = 1, seedV = 1;
+    juce::String style { "bcn" };   // estilo del generador (lo usa la interfaz): bcn, solid, rio, bailesito, sintos
     // sonido CUSTOM (NEW SOUND): h2 h3 h4 h5 fmRatio fmIndex fmSus fmDecay pitch pitchDecay
     std::array<std::atomic<float>, 10> custom { 0.3f, 0.1f, 0.0f, 0.0f, 1.0f, 0.8f, 0.4f, 0.08f, 0.0f, 0.02f };
 
@@ -99,7 +100,7 @@ private:
     std::atomic<float>* pKey = nullptr; std::atomic<float>* pScale = nullptr; std::atomic<float>* pSwing = nullptr;
     std::atomic<float>* pGate = nullptr; std::atomic<float>* pKick = nullptr; std::atomic<float>* pShape = nullptr;
     std::atomic<float>* pDrive = nullptr; std::atomic<float>* pMid = nullptr; std::atomic<float>* pFilter = nullptr;
-    std::atomic<float>* pDecay = nullptr; std::atomic<float>* pSbpm = nullptr;
+    std::atomic<float>* pDecay = nullptr; std::atomic<float>* pSbpm = nullptr; std::atomic<float>* pOct = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MBProcessor)
 };

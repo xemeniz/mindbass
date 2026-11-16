@@ -127,7 +127,7 @@ html{background-size:auto calc(100vh * 708 / 640)!important;background-position:
 <div class="stage" id="stage"><div class="wrap" id="wrap">
 <header>
  <div class="hl">
-  <div class="val dd" id="keyv" data-tip="Key of the bass. In blue, the keys Mindshake uses most (B, F, D). Click to choose, or use the wheel"><small>KEY</small><span id="keyt">F</span></div>
+  <div class="val dd" id="keyv" data-tip="Key of the bass. In blue, the keys the current style uses most. Click to choose, or use the wheel"><small>KEY</small><span id="keyt">F</span></div>
   <div class="val dd" id="scalev" data-tip="Scale of the line: MINOR, MAJOR, PHRYGIAN or DORIAN"><small>SCALE</small><span id="scalet">MINOR</span></div>
   <div class="val" id="bpmv" data-tip="Tempo. It follows Ableton; in the standalone app drag it up and down"><small>BPM</small><span id="bpmt">128</span></div>
   <div class="val" id="swv" data-tip="Swing of the off 16ths. 57 % is the Barcelona groove (same as BCN GROOVE in MINDSHOT). Double-click = 57 %"><small>SWING</small><span id="swt">57%</span></div>
@@ -142,7 +142,8 @@ html{background-size:auto calc(100vh * 708 / 640)!important;background-position:
 
 <div class="panel stylep">
  <div class="ptitle">Style</div>
- <div class="val dd" id="stylev" data-tip="Style of the line. BCN SUB: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing"><span id="stylet">BCN SUB</span></div>
+ <div class="val dd" id="stylev" data-tip="Style of the line"><span id="stylet">BCN SUB</span></div>
+ <div class="val dd" id="octv" data-tip="Ableton octave of the line. 0 = sub, 1 = low bass that reads on monitors"><small>OCT</small><span id="octt">0</span></div>
  <div class="sp"></div>
  <span class="chip midi" id="midichip" style="display:none" data-tip="You are playing MIDI notes into MIND BASS: the pattern waits until you stop">MIDI IN &#183; PATTERN MUTED</span>
 </div>
@@ -205,7 +206,7 @@ html{background-size:auto calc(100vh * 708 / 640)!important;background-position:
 
 <script>
 "use strict";
-const VERSION='0.2.0';
+const VERSION='0.3.0';
 const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const J=()=>window.__JUCE__&&window.__JUCE__.backend;
 const PLUGIN=!!J();
@@ -217,7 +218,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let toastT=null;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600)}
 
 // ================= estado (el plugin manda; aquí hay una copia) =================
-const P={key:5,scale:0,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128};
+const P={key:5,octave:0,scale:0,swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,filter:.4,decay:.9,sbpm:128};
 let settings={theme:'dark',drag:'midi',standalone:false};
 let play=0,pos=0,bpm=128,midiIn=false,dragging=null,Z=1;
 
@@ -286,11 +287,12 @@ function genBar(r,o){
 const FILLS=[[7,10,12],[3,5,7],[12,10,7],[-2,-1,0],[1,2,3],[10,12],[-5,-2,0]];
 function vary(A,r,o,strong){
  const B=A.map(s=>s.slice()),ons=()=>B.map((s,i)=>s[0]?i:-1).filter(i=>i>0);
+ const iv=()=>isStyle(o)?degPick(r,STYLES[o.style]):interval(r,o.scale);
  // 1) uno o dos cambios de nota
  const k=strong?2:1;
- for(let n=0;n<k;n++){const c=ons();if(!c.length)break;const i=pick(r,c);B[i][1]=B[i][1]===0?interval(r,o.scale):(r()<.5?0:interval(r,o.scale))}
+ for(let n=0;n<k;n++){const c=ons();if(!c.length)break;const i=pick(r,c);B[i][1]=B[i][1]===0?iv():(r()<.5?0:iv())}
  // 2) retoque de ritmo: alargar o recortar un grupo
- if(r()<.6){const cand=[];for(let i=1;i<16;i++){if(o.kick>.5&&i%4===0)continue;
+ if(r()<.6){const cand=[];for(let i=1;i<16;i++){if((o.kick>.5||isStyle(o))&&i%4===0)continue;
    if(!B[i][0]&&B[i-1][0])cand.push(['add',i]);else if(B[i][0]&&B[i-1][0]&&B[i-2]&&B[i-2][0]&&!(B[i+1]&&B[i+1][0]))cand.push(['cut',i])}
   if(cand.length){const [t,i]=pick(r,cand);if(t==='add'){B[i]=[1,B[i-1][1],.8,1.2,0];B[i-1][3]=1}else{B[i]=emptyStep();B[i-1][3]=1.2}}}
  // 3) A'': remate al final del compás 4 (subida, octava o vuelta a la tónica)
@@ -300,24 +302,92 @@ function vary(A,r,o,strong){
  return B;
 }
 function generate(seedA,seedV,o,cur){
- const A=genBar(rng(seedA),o);
+ const A=(isStyle(o)?genStyleBar:genBar)(rng(seedA),o);
  const A1=vary(A,rng(seedV),o,false),A2=vary(A,rng((seedV^0x5bd1e995)>>>0),o,true);
  const out=[].concat(A,A1,A.map(s=>s.slice()),A2);
+ if(isStyle(o))snapBar(out,SC(o.scale).rows);
  if(cur)for(let i=0;i<64;i++)if(cur[i]&&cur[i][4])out[i]=cur[i].slice();
  return out;
 }
-window.MB={generate,rng,rhythm};
+// ================= ESTILOS 0.3 (Notion > ANÁLISIS DE GÉNEROS, análisis v2 de nov 2026) =================
+// Patrones propios hechos con las estadísticas de cada estilo: no copian ninguna línea de bajo.
+// pats: [paso 1-16, semitonos desde la tónica]. occ: % de compases con nota en cada paso. deg: grados fuera de la tónica y su peso.
+// Con DENSITY, MOVE y KICK en el valor del estilo sale el patrón tal cual; al moverlos se aleja respetando las estadísticas.
+const STYLES={
+ bcn:{l:'BCN SUB',tip:'Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing',src:'Mindshake',n:12,keys:{11:5,5:3,2:2,10:1,6:1},
+  def:{swing:.57,gate:.7,density:.7,move:.4,kick:.45,shape:0,drive:.3,mid:.15,scale:0,octave:0,sbpm:128}},
+ solid:{l:'SOLID',tip:'Rolling house bass: about 7 short notes per bar off the kick, root most of the time, semitone moves. Octave 0, straight, 129 BPM',src:'reference',n:9,keys:{0:5,5:2,7:1,4:1},
+  def:{swing:.5,gate:.9,density:.5,move:.25,kick:.6,shape:0,drive:.2,mid:.15,scale:0,octave:0,sbpm:129},
+  pats:[[[4,0],[7,0],[8,12],[9,0],[10,0],[12,1],[15,0]],
+        [[3,0],[4,0],[7,-2],[8,0],[10,5],[12,1],[15,-5],[16,0]],
+        [[1,0],[4,0],[7,1],[8,0],[10,0],[12,-2],[15,0]]],
+  occ:[44,43,36,61,58,25,62,71,60,52,41,59,42,20,65,36],peaks:[4,7,10,15],
+  deg:[[1,13],[5,6],[7,6],[10,6],[-2,4],[12,4],[-5,3]]},
+ rio:{l:'RIO',tip:'Latin tech house bass: short plucky notes in octave 1 that change degree (5th, 6th, 2nd), spread across the bar. Dorian, straight, 128 BPM',src:'reference',n:8,keys:{4:2,0:1,3:1,11:1,8:1,10:1,9:1},
+  def:{swing:.5,gate:.55,density:.5,move:.55,kick:.6,shape:0,drive:.4,mid:.35,scale:3,octave:1,sbpm:128},
+  pats:[[[1,-5],[4,0],[6,7],[7,9],[11,0],[12,2],[15,7]],
+        [[3,0],[4,0],[7,7],[8,-1],[10,0],[12,9],[15,-5]],
+        [[4,0],[7,7],[8,7],[11,9],[12,7],[14,2],[15,0]]],
+  occ:[44,37,40,65,58,47,67,44,50,33,50,41,49,40,52,39],peaks:[4,7,15],
+  deg:[[7,9],[9,9],[-1,8],[2,8],[1,7],[-5,6],[12,4]]},
+ bailesito:{l:'BAILESITO',tip:'Walking latin bass: pure sine that steps by semitones and tones around the root and rarely repeats. Peaks on 7 and 4, straight, 130 BPM',src:'reference',n:12,keys:{1:4,7:2,0:1,6:1,2:1,11:1,9:1,4:1},walk:true,
+  def:{swing:.5,gate:.95,density:.5,move:.8,kick:.55,shape:0,drive:0,mid:0,scale:0,octave:1,sbpm:130},
+  pats:[[[1,0],[2,2],[4,3],[7,2],[9,0],[10,-1],[12,0],[15,-2]],
+        [[2,0],[4,-1],[7,0],[10,2],[12,3],[15,2]],
+        [[1,0],[4,2],[7,3],[9,2],[10,0],[12,-1],[15,0]]],
+  occ:[52,47,27,60,47,29,67,30,51,54,26,48,41,28,45,35],peaks:[7,4],
+  deg:[[-1,11],[2,9],[-2,7],[1,6],[3,5],[-5,4]]},
+ sintos:{l:'SINTOS',tip:'Deep club sub in octave 0: about 8 notes per bar that stay off the kick and push into the next bar (15-16), with octave jumps. Straight, 131 BPM',src:'reference',n:7,keys:{9:2,0:2,3:1,4:1,11:1},
+  def:{swing:.5,gate:.95,density:.55,move:.4,kick:.65,shape:0,drive:.1,mid:.1,scale:0,octave:0,sbpm:131},
+  pats:[[[1,0],[4,0],[7,1],[8,12],[12,7],[15,0],[16,9]],
+        [[2,0],[4,1],[7,7],[8,0],[10,9],[12,7],[15,0],[16,12]],
+        [[3,0],[4,0],[7,12],[8,1],[11,8],[14,7],[15,9],[16,1]]],
+  occ:[61,48,42,74,25,36,67,73,24,41,39,50,47,41,61,65],peaks:[4,7,8,15,16],
+  deg:[[1,13],[7,11],[9,10],[8,6],[12,6],[-5,4]]}};
+const STYLE_IDS=Object.keys(STYLES);
+const ST=id=>STYLES[id]||STYLES.bcn;
+const isStyle=o=>!!(o&&o.style&&o.style!=='bcn'&&STYLES[o.style]);
+const degPick=(r,S)=>wpick(r,S.deg);
+// paso de bajo caminante: vecino (±1-2 semitonos) de la nota anterior, dentro de la rejilla
+function walkFrom(r,prev,rows){const v=prev+wpick(r,[[1,.3],[-1,.3],[2,.2],[-2,.2]]);return v===prev?0:v}
+function snapBar(bar,rows){bar.forEach(s=>{if(s[0])s[1]=snapTo(rows,s[1])});return bar}
+function genStyleBar(r,o){
+ const S=STYLES[o.style],rows=SC(o.scale).rows,t=S.pats[Math.floor(r()*S.pats.length)];
+ const bar=Array.from({length:16},emptyStep);
+ t.forEach(([st,off])=>{bar[st-1]=[1,off,0,1,0]});
+ const kickW=i=>i%4===0?Math.max(.03,1-o.kick):1,w=i=>S.occ[i]*kickW(i);
+ // KICK por encima del valor del estilo: las notas de las negras se van
+ const kx=(o.kick-S.def.kick)*2.2;
+ if(kx>0)for(const q of [0,4,8,12])if(bar[q][0]&&r()<kx)bar[q]=emptyStep();
+ // DENSITY: más o menos notas que el patrón, en los pasos donde el estilo suele tocar
+ let n=bar.filter(x=>x[0]).length;
+ const target=clamp(t.length+Math.round((o.density-S.def.density)*10),3,13);
+ let guard=0;
+ while(n<target&&guard++<60){const c=[];for(let i=0;i<16;i++)if(!bar[i][0])c.push([i,w(i)]);if(!c.length)break;
+  const i=wpick(r,c);bar[i]=[1,r()<.55?0:degPick(r,S),0,1,0];n++}
+ while(n>target&&guard++<120){const c=[];for(let i=0;i<16;i++)if(bar[i][0])c.push([i,(S.peaks.includes(i+1)?.25:1)/(w(i)+5)]);
+  const i=wpick(r,c);bar[i]=emptyStep();n--}
+ // MOVE: por encima del estilo cambia grados (o camina), por debajo vuelve a la tónica
+ const dm=o.move-S.def.move;let prev=0;
+ for(let i=0;i<16;i++){if(!bar[i][0])continue;
+  if(dm>0&&r()<dm*1.3)bar[i][1]=S.walk?walkFrom(r,prev,rows):degPick(r,S);
+  else if(dm<0&&bar[i][1]!==0&&r()<-dm/Math.max(.05,S.def.move))bar[i][1]=0;
+  prev=bar[i][1]}
+ for(let i=0;i<16;i++)if(bar[i][0]){bar[i][2]=S.peaks.includes(i+1)?.95:+(.8+r()*.06).toFixed(2);bar[i][3]=bar[i+1]&&bar[i+1][0]?1:1.1}
+ return snapBar(bar,rows);
+}
+window.MB={generate,rng,rhythm,STYLES};
 
 // ================= patrón =================
 const DEF_CUSTOM=[.3,.1,0,0,1,.8,.4,.08,0,.02];
-let PAT={steps:Array.from({length:64},emptyStep),seedA:1,seedV:1,custom:DEF_CUSTOM.slice()};
-const gopts=()=>({density:P.density,move:P.move,kick:P.kick,scale:P.scale});
-function sendPattern(){emit('mbPattern',{steps:PAT.steps,seedA:PAT.seedA,seedV:PAT.seedV,custom:PAT.custom})}
+let PAT={steps:Array.from({length:64},emptyStep),seedA:1,seedV:1,custom:DEF_CUSTOM.slice(),style:'bcn'};
+const gopts=()=>({density:P.density,move:P.move,kick:P.kick,scale:P.scale,style:PAT.style});
+function sendPattern(){emit('mbPattern',{steps:PAT.steps,seedA:PAT.seedA,seedV:PAT.seedV,custom:PAT.custom,style:PAT.style})}
 function regen(){PAT.steps=generate(PAT.seedA,PAT.seedV,gopts(),PAT.steps);sendPattern();paintGrid();paintInfo()}
 
 // ================= deshacer =================
 const undoS=[],redoS=[];
-function snap(){return JSON.stringify({P:{key:P.key,scale:P.scale,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
+function snap(){return JSON.stringify({P:{key:P.key,octave:P.octave,sbpm:P.sbpm,scale:P.scale,swing:P.swing,gate:P.gate,density:P.density,move:P.move,kick:P.kick,shape:P.shape,drive:P.drive,mid:P.mid,filter:P.filter,decay:P.decay},T:PAT})}
 function pushUndo(){const s=snap();if(undoS[undoS.length-1]!==s){undoS.push(s);if(undoS.length>100)undoS.shift()}redoS.length=0}
 function restore(s){const o=JSON.parse(s);for(const k in o.P)if(o.P[k]!==P[k])setG(k,o.P[k]);
  if(JSON.stringify(o.T)!==JSON.stringify(PAT)){PAT=o.T;sendPattern()}paint()}
@@ -356,9 +426,9 @@ function knobs(sel,list){list.forEach(k=>{
  dragVal(dial,k.id,{min:0,max:1,px:150,def:k.def,snap:r2,wheel:.05});kns.push({k,dial,kv})})}
 const kns=[];
 knobs('#kgen',[
- {id:'density',l:'DENSITY',def:.7,acc:'var(--n0)',tip:'How many 16ths play per bar: 4 to 14 (70 % = about 11, the Mindshake average)'},
+ {id:'density',l:'DENSITY',def:.7,acc:'var(--n0)',tip:'How many 16ths play per bar. Each style starts at its own average: turn up for more notes, down for fewer'},
  {id:'gate',l:'GATE',def:.7,acc:'var(--n1)',tip:'Length of each note within its 16th. Short = tight and bouncy'},
- {id:'move',l:'MOVE',def:.4,acc:'var(--n2)',tip:'How often the line leaves the root: semitones, 5ths, 7ths and octaves. 40 % = root 60 % of the time'},
+ {id:'move',l:'MOVE',def:.4,acc:'var(--n2)',tip:'How often the line leaves the root. At the style value you get its typical line; more = more degrees (or walking), less = more root'},
  {id:'kick',l:'KICK',def:.45,acc:'var(--n3)',tip:'Room for the kick: sidechain depth, and above 50 % the bass leaves every beat free'}]);
 knobs('#ksnd',[
  {id:'drive',l:'DRIVE',def:.3,acc:'var(--n0)',tip:'Soft saturation. More harmonics, never louder'},
@@ -374,7 +444,7 @@ const SOUNDS=['SINE','TRI','SAW','SQUARE','ROUND','ORGAN','FM SUB','PLUCK','CUST
 const SOUND_TIPS=['Pure sine: the clean Mindshake sub','Triangle: a little more edge','Saw: more harmonics, use with the FILTER','Soft square: hollow and firm',
  'Round sine with a touch of 2nd and 3rd: reads on small speakers','Organ: octave, fifth and two octaves on top','FM growl on the attack that settles into a sub','Short knock with a pitch drop: plucky bass','Your own sound from NEW SOUND'];
 // tonalidades del bajo en los 12 temas de Mindshake 2023-2026 (Notion > ANÁLISIS DE GÉNEROS > MINDSHAKE)
-const KEY_USE={11:5,5:3,2:2,10:1,6:1};
+const KEY_USE=()=>ST(PAT.style).keys;
 let ddOpen=null;
 const pop=$('#keypop');
 function closeDD(){pop.classList.remove('show');ddOpen=null}
@@ -386,11 +456,17 @@ function openDD(anchor,items,cur,onPick){
  const r=anchor.getBoundingClientRect();pop.style.minWidth=Math.max(150,r.width)+'px';pop.classList.add('show');
  const h=pop.offsetHeight;pop.style.left=Math.min(innerWidth-pop.offsetWidth-8,r.left)+'px';pop.style.top=(r.bottom+8+h>innerHeight-8?Math.max(8,r.top-8-h):r.bottom+8)+'px';ddOpen=anchor}
 document.addEventListener('pointerdown',e=>{if(ddOpen&&!e.target.closest('#keypop')&&!e.target.closest('.dd'))closeDD()});
-$('#keyv').addEventListener('click',e=>openDD($('#keyv'),NAMES.map((n,i)=>({v:i,l:n,cls:KEY_USE[i]?(KEY_USE[i]>1?'blue':'blue soft'):'',em:KEY_USE[i]?KEY_USE[i]+' OF 12':'',
-  tip:KEY_USE[i]?'Bass key in '+KEY_USE[i]+' of 12 Mindshake tracks':''})),P.key,v=>{pushUndo();setG('key',v);paint()}));
+$('#keyv').addEventListener('click',e=>openDD($('#keyv'),NAMES.map((n,i)=>({v:i,l:n,cls:KEY_USE()[i]?(KEY_USE()[i]>1?'blue':'blue soft'):'',em:KEY_USE()[i]?KEY_USE()[i]+' OF '+ST(PAT.style).n:'',
+  tip:KEY_USE()[i]?'Bass key in '+KEY_USE()[i]+' of '+ST(PAT.style).n+' '+ST(PAT.style).src+' tracks of this style':''})),P.key,v=>{pushUndo();setG('key',v);paint()}));
 $('#keyv').addEventListener('wheel',e=>{e.preventDefault();pushUndo();setG('key',(P.key+(e.deltaY<0?1:11))%12);paint()},{passive:false});
 $('#scalev').addEventListener('click',()=>openDD($('#scalev'),SCALES.map((x,i)=>({v:i,l:x.name})),P.scale,setScale));
-$('#stylev').addEventListener('click',()=>openDD($('#stylev'),[{v:'bcn',l:'BCN SUB',tip:'Barcelona sub: clean mono sine in octave 0, root-heavy 16ths in groups of 2-4, 57 % swing'}],'bcn',()=>{}));
+$('#stylev').addEventListener('click',()=>openDD($('#stylev'),STYLE_IDS.map(id=>({v:id,l:STYLES[id].l,tip:STYLES[id].tip})),PAT.style,setStyle));
+$('#octv').addEventListener('click',()=>openDD($('#octv'),[0,1,2].map(v=>({v,l:'OCTAVE '+v,tip:['Ableton octave 0 (32-62 Hz): pure sub','Ableton octave 1 (65-123 Hz): low bass that reads on monitors','Ableton octave 2 (130-250 Hz): bass line, no sub'][v]})),P.octave,v=>{pushUndo();setG('octave',v);paint()}));
+// STYLE: carga los valores del estilo (Cmd+Z lo deshace todo junto) y genera una línea nueva
+function setStyle(id){if(!STYLES[id]||id===PAT.style)return;pushUndo();PAT.style=id;const d=STYLES[id].def;
+ for(const k in d)if(P[k]!==d[k])setG(k,d[k]);
+ const rows=SC(P.scale).rows;PAT.steps.forEach(s=>{if(s[0])s[1]=snapTo(rows,s[1])});
+ PAT.seedA=newSeed();PAT.seedV=newSeed();regen();paint();toast(STYLES[id].l+': style settings loaded')}
 $('#soundv').addEventListener('click',()=>openDD($('#soundv'),[{v:0,l:'SINE',tip:SOUND_TIPS[0]},'-',...SOUNDS.slice(1).map((n,i)=>({v:i+1,l:n,tip:SOUND_TIPS[i+1]}))],P.shape,v=>{pushUndo();setG('shape',v);paint()}));
 $('#sine').onclick=()=>{if(P.shape===0)return;pushUndo();setG('shape',0);paint()};
 // NEW SOUND: un timbre propio (armónicos + FM + golpe de tono), siempre de bajo
@@ -477,6 +553,8 @@ function paintPlay(){const b=$('#play');b.classList.toggle('on',play===1);b.clas
 
 function paint(){
  $('#keyt').textContent=NAMES[P.key];
+ const S=ST(PAT.style);$('#stylet').textContent=S.l;$('#stylev').dataset.tip='Style of the line. '+S.l+': '+S.tip+'. Changing style loads its settings';
+ $('#octt').textContent=P.octave|0;
  $('#scalet').textContent=SC(P.scale).name;
  $('#soundt').textContent=SOUNDS[clamp(P.shape|0,0,8)];$('#sine').classList.toggle('on',P.shape===0);
  const bp=settings.standalone?P.sbpm:bpm;$('#bpmt').textContent=Math.round(bp);
@@ -515,14 +593,14 @@ if(window.matchMedia)matchMedia('(resolution: 2dppx)').addEventListener&&matchMe
 on('mbSettings',v=>{if(!v)return;Object.assign(settings,v);paintSettings();paint()});
 on('mbState',v=>{if(!v)return;let ch=false;
  if(v.p){for(const k in v.p){if(k===dragging)continue;const x=v.p[k];P[k]=typeof x==='boolean'?+x:x}
-  ['key','shape','scale'].forEach(k=>P[k]=Math.round(P[k]));ch=true}
+  ['key','octave','shape','scale'].forEach(k=>P[k]=Math.round(P[k]));ch=true}
  if('play' in v&&v.play!==play){play=v.play;ch=true}
  if('bpm' in v&&v.bpm!==bpm){bpm=v.bpm;ch=true}
  if('midiIn' in v&&!!v.midiIn!==midiIn){midiIn=!!v.midiIn;ch=true}
  if('pos' in v&&(v.pos!==pos||play)){pos=v.pos;if(!ch)paintGrid()}
  if(ch)paint()});
 on('mbPattern',v=>{if(!v||!Array.isArray(v.steps)||v.steps.length!==64)return;
- PAT={steps:v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]),seedA:v.seedA||1,seedV:v.seedV||1,custom:Array.isArray(v.custom)&&v.custom.length===10?v.custom.map(Number):DEF_CUSTOM.slice()};paint()});
+ PAT={steps:v.steps.map(s=>[+s[0],+s[1],+s[2],+s[3],+s[4]]),seedA:v.seedA||1,seedV:v.seedV||1,custom:Array.isArray(v.custom)&&v.custom.length===10?v.custom.map(Number):DEF_CUSTOM.slice(),style:STYLES[v.style]?v.style:'bcn'};paint()});
 on('mbToast',v=>{if(v&&v.msg)toast(v.msg)});
 
 // ================= modo navegador (sin plugin) =================

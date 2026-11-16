@@ -288,7 +288,7 @@ ok((await sent()).some(([e]) => e === 'mbPlay'), 'barra espaciadora = PLAY');
 // Settings
 await page.click('#gear');
 ok(await page.isVisible('#modal'), 'Settings se abre');
-ok((await page.textContent('#ver')) === '0.2.0', 'versión 0.2.0');
+ok((await page.textContent('#ver')) === '0.3.0', 'versión 0.3.0');
 ok(!(await page.textContent('#modal')).includes('PLAY WITH ABLETON') && !(await page.textContent('#modal')).includes('HOW TO USE'), 'Settings sin PLAY WITH ABLETON ni el tutorial');
 await clear();
 await page.click('#dragas button:nth-child(2)');
@@ -309,6 +309,51 @@ await page.screenshot({ path: out + '-light.png' });
 const steps1 = Array.from({ length: 64 }, (_, i) => [i % 4 === 2 ? 1 : 0, 0, .8, 1, 0]);
 await fire('mbPattern', { steps: steps1, seedA: 5, seedV: 6 });
 ok((await page.textContent('#pinfo')).includes('16 NOTES'), 'al abrir un proyecto enseña su patrón');
+
+// =============== ESTILOS 0.3: 200 generaciones por estilo contra las fichas (Notion > ANÁLISIS DE GÉNEROS) ===============
+console.log('Estilos 0.3');
+const ST = await page.evaluate(() => {
+  const out = {};
+  for (const id of ['solid', 'rio', 'bailesito', 'sintos']) {
+    const d = MB.STYLES[id].def, o = { density: d.density, move: d.move, kick: d.kick, scale: d.scale, style: id };
+    const rows = new Set(SCALES[d.scale].rows); let notes = 0, bars = 0, kick = 0, tonic = 0, bad = 0, peaks = 0;
+    for (let n = 0; n < 200; n++) { const st = MB.generate(1000 + n * 7919, 77 + n * 104729, o);
+      for (let b = 0; b < 4; b++) { bars++; for (let i = 0; i < 16; i++) { const s = st[b * 16 + i]; if (!s[0]) continue; notes++;
+        if (i % 4 === 0) kick++; if (s[1] % 12 === 0) tonic++; if (!rows.has(s[1])) bad++; if (i === 3 || i === 6) peaks++; } } }
+    const hi = { ...o, kick: 1 }; let hk = 0, hn = 0;
+    for (let n = 0; n < 100; n++) { const st = MB.generate(5 + n * 31, 9 + n * 17, hi); st.forEach((s, i) => { if (s[0]) { hn++; if (i % 4 === 0) hk++; } }); }
+    const dn = { ...o, density: Math.min(1, d.density + .3) }; let dnn = 0;
+    for (let n = 0; n < 100; n++) dnn += MB.generate(5 + n * 31, 9 + n * 17, dn).filter(s => s[0]).length;
+    out[id] = { perBar: notes / bars, kick: kick / notes, tonic: tonic / notes, bad, peaks: peaks / bars, kickHi: hk / hn, densUp: dnn / 400 };
+  }
+  return out;
+});
+const TON = { solid: [.5, .7], rio: [.28, .45], bailesito: [.28, .45], sintos: [.38, .55] };
+for (const [id, g] of Object.entries(ST)) {
+  ok(g.perBar >= 6.5 && g.perBar <= 8.5, id + ': unas 7-8 notas por compás (' + g.perBar.toFixed(1) + ')');
+  ok(g.kick <= .22, id + ': poco bajo en el kick, 1-5-9-13 (' + Math.round(g.kick * 100) + ' %)');
+  ok(g.tonic >= TON[id][0] && g.tonic <= TON[id][1], id + ': tónica como en la ficha (' + Math.round(g.tonic * 100) + ' %)');
+  ok(g.bad === 0, id + ': todas las notas en las filas de la escala');
+  ok(g.peaks >= 1.3, id + ': ataca en los pasos 4 y 7 (' + g.peaks.toFixed(2) + ' por compás)');
+  ok(g.kickHi <= .03, id + ': con KICK al 100 % deja libres las negras (' + Math.round(g.kickHi * 100) + ' %)');
+  ok(g.densUp > g.perBar + 1.5, id + ': DENSITY sube el número de notas (' + g.densUp.toFixed(1) + ')');
+}
+// cambiar de estilo carga sus ajustes y Cmd+Z vuelve atrás
+await page.click('#stylev');
+await page.click('#keypop button:has-text("RIO")');
+let sp = await lastPat();
+const pv = await page.evaluate(() => ({ ...P }));
+ok(sp.style === 'rio' && (await page.textContent('#stylet')) === 'RIO', 'STYLE: RIO elegido y enviado al plugin');
+ok(pv.octave === 1 && pv.scale === 3 && Math.abs(pv.gate - .55) < 1e-6 && pv.sbpm === 128, 'RIO carga sus ajustes (octava 1, DORIAN, gate 55 %)');
+ok((await page.textContent('#octt')) === '1', 'el selector de octava enseña OCT 1');
+await page.keyboard.press('Meta+z');
+ok((await page.textContent('#stylet')) === 'BCN SUB' && (await page.evaluate(() => P.octave)) === 0, 'Cmd+Z deshace el cambio de estilo y sus ajustes');
+await fire('mbPattern', { steps: Array.from({ length: 64 }, () => [0, 0, .85, 1, 0]), seedA: 3, seedV: 4, style: 'sintos' });
+ok((await page.textContent('#stylet')) === 'SINTOS', 'al abrir un proyecto recupera su estilo (SINTOS)');
+await page.click('#octv');
+await page.click('#keypop button:has-text("OCTAVE 2")');
+ok((await sent()).some(([e, o]) => e === 'mbSet' && o.id === 'octave' && o.v === 2), 'OCTAVE 2 se manda al plugin');
+await page.screenshot({ path: out + '-styles.png' });
 
 ok(errors.length === 0, 'sin errores en la consola' + (errors.length ? ': ' + errors.join(' | ') : ''));
 await browser.close();

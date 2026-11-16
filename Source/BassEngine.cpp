@@ -68,12 +68,12 @@ static double rawWave (int shape, const Timbre& t, double ph, double idx)
     return std::sin (2.0 * kPi * ph);
 }
 
-std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate)
+std::vector<Note> buildNotes (const Pattern& pat, int key, double swing, double gate, int octave)
 {
     std::vector<Note> notes;
     const double sw = (juce::jlimit (0.5, 0.75, swing) - 0.5) * 0.5;   // retraso de las semicorcheas pares, en tiempos
     auto onset = [sw] (int i) { return i * 0.25 + ((i & 1) ? sw : 0.0); };
-    const int root = rootNote (key);
+    const int root = rootNote (key) + 12 * juce::jlimit (0, 2, octave);
     for (int i = 0; i < kSteps; ++i)
     {
         const auto& s = pat[(size_t) i];
@@ -311,12 +311,12 @@ void Synth::render (float* out, int n, const float* gain)
 }
 
 // ------------------------------------------------------------------ exportar
-juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate)
+juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate, int octave)
 {
     constexpr int tpq = 960;
     juce::MidiMessageSequence seq;
     seq.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4), 0);
-    for (auto& n : buildNotes (pat, key, swing, gate))
+    for (auto& n : buildNotes (pat, key, swing, gate, octave))
     {
         const double end = juce::jmin (kLoopBeats, n.beat + n.len);
         const auto v = (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (n.vel * 127.0f));
@@ -332,14 +332,14 @@ juce::MidiFile makeMidi (const Pattern& pat, int key, double swing, double gate)
 }
 
 void renderAudio (juce::AudioBuffer<float>& out, double sr, const Pattern& pat, int key, double swing, double gate,
-                  double bpm, const SoundParams& sp, float kick)
+                  double bpm, const SoundParams& sp, float kick, int octave)
 {
     const double spb = 60.0 / juce::jlimit (40.0, 250.0, bpm);
     const int total = (int) std::round (kLoopBeats * spb * sr);
     out.setSize (2, total);
     out.clear();
     Synth s; s.prepare (sr); s.setParams (sp);
-    auto notes = buildNotes (pat, key, swing, gate);
+    auto notes = buildNotes (pat, key, swing, gate, octave);
     // el note-off de la última nota puede pasar del final: en el clip se corta en el compás 5
     std::vector<Event> ev;
     for (auto& n : notes) { ev.push_back ({ n.beat, n.note, n.vel, true }); ev.push_back ({ juce::jmin (kLoopBeats, n.beat + n.len), n.note, 0, false }); }

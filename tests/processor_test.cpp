@@ -133,6 +133,8 @@ int main()
         p.setParam ("shape", 8.0f);   // CUSTOM
         auto pv = p.patternVar();
         pv.getDynamicObject()->setProperty ("custom", juce::JSON::parse ("[0.5,0.2,0.1,0,2,1.5,0.3,0.05,5,0.01]"));
+        pv.getDynamicObject()->setProperty ("style", "bailesito");
+        p.setParam ("octave", 1.0f);
         p.setPatternVar (pv);
         juce::MemoryBlock st; p.getStateInformation (st);
         MBProcessor q;
@@ -146,6 +148,8 @@ int main()
         CHECK (notified == 1, "al abrir el proyecto avisa a la interfaz");
         CHECK ((int) q.apvts.getRawParameterValue ("scale")->load() == 3, "la escala (DORIAN) se guarda");
         CHECK ((int) q.apvts.getRawParameterValue ("shape")->load() == 8, "el sonido CUSTOM se guarda");
+        CHECK (q.patternVar().getProperty ("style", "").toString() == "bailesito", "el estilo (BAILESITO) se guarda con el proyecto");
+        CHECK ((int) q.apvts.getRawParameterValue ("octave")->load() == 1, "la octava se guarda");
         auto qc = q.patternVar()["custom"];
         CHECK (qc.size() == 10 && std::abs ((double) qc[0] - 0.5) < 1e-6 && std::abs ((double) qc[8] - 5.0) < 1e-6, "y su timbre (NEW SOUND) también");
         auto bad2 = q.patternVar(); bad2.getDynamicObject()->setProperty ("custom", juce::JSON::parse ("[9,9,9,9,99,99,9,9,99,9]"));
@@ -162,7 +166,13 @@ int main()
         r.setPatternVar (bad);
         CHECK (r.getPattern()[18].off == -2, "un patrón roto no se carga");
 
-        // al tocar con KEY = A la primera nota es A0 (55 Hz)
+        // al tocar con KEY = A la primera nota es A1 con OCTAVE 1 (110 Hz) y A0 con OCTAVE 0 (55 Hz)
+        host.playing = true; host.ppq = 0;
+        x = run (p, &host, 1, mono);
+        const double f1 = freqZC (x, (size_t) (0.01 * SR), (size_t) (0.07 * SR));
+        CHECK (std::abs (f1 - 110.0) < 5.0, "KEY A + OCTAVE 1: la primera nota es A1 (%.1f Hz)", f1);
+        p.setParam ("octave", 0.0f);
+        host.playing = false; run (p, &host, 1, mono);
         host.playing = true; host.ppq = 0;
         x = run (p, &host, 1, mono);
         const double f = freqZC (x, (size_t) (0.01 * SR), (size_t) (0.07 * SR));

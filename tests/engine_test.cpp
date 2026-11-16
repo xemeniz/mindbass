@@ -59,6 +59,15 @@ int main()
     // ---------- tónica y afinación ----------
     CHECK (mbass::rootNote (5) == 29, "F = MIDI 29 (F0 de Ableton), da %d", mbass::rootNote (5));
     CHECK (mbass::rootNote (0) == 24, "C = MIDI 24 (C0 de Ableton)");
+    {
+        auto n0 = mbass::buildNotes (mbass::defaultPattern(), 5, 0.5, 0.7, 0), n1 = mbass::buildNotes (mbass::defaultPattern(), 5, 0.5, 0.7, 1);
+        bool same = n0.size() == n1.size() && ! n0.empty();
+        for (size_t i = 0; same && i < n0.size(); ++i) same = n1[i].note == n0[i].note + 12 && n1[i].beat == n0[i].beat;
+        CHECK (same, "OCTAVE 1 sube toda la línea 12 semitonos sin mover el ritmo");
+        auto mf = mbass::makeMidi (mbass::defaultPattern(), 5, 0.5, 0.7, 2);
+        int lo = 127; for (auto* e : *mf.getTrack (0)) if (e->message.isNoteOn()) lo = juce::jmin (lo, e->message.getNoteNumber());
+        CHECK (lo >= 29 + 24 - 5, "el MIDI exportado lleva la octava (OCTAVE 2: nota más grave %d)", lo);
+    }
     CHECK (mbass::keyName (5, 0) == "F MIN" && mbass::keyName (10, 1) == "A# MAJ" && mbass::keyName (11, 2) == "B PHRYG" && mbass::keyName (2, 3) == "D DOR", "nombres de tonalidad y escala");
     {
         mbass::SoundParams sp; sp.decay = 1.0f; sp.drive = 0.3f; sp.filter = 0.4f;

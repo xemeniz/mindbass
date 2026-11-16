@@ -25,7 +25,8 @@ juce::String keyName (int key, int scale);   // scale: 0 MINOR, 1 MAJOR, 2 PHRYG
 
 struct Note { double beat, len; int note; float vel; };
 // Notas de un ciclo de 4 compases con swing y gate aplicados (beat en [0,16), len recortada antes de la siguiente nota).
-std::vector<Note> buildNotes (const Pattern&, int key, double swing, double gate);
+// octave: 0-2 sobre la octava 0 de Ableton (el estilo RIO, por ejemplo, va en la 1)
+std::vector<Note> buildNotes (const Pattern&, int key, double swing, double gate, int octave = 0);
 
 struct Event { double beat; int note; float vel; bool on; };
 // Lo mismo como eventos de un bucle (los note-off que pasan del final vuelven al principio). Ordenados, note-off primero.
@@ -85,7 +86,7 @@ private:
     SVF lp, mid;
 };
 
-juce::MidiFile makeMidi (const Pattern&, int key, double swing, double gate);
+juce::MidiFile makeMidi (const Pattern&, int key, double swing, double gate, int octave = 0);
 void renderAudio (juce::AudioBuffer<float>& out, double sr, const Pattern&, int key, double swing, double gate,
-                  double bpm, const SoundParams&, float kick);
+                  double bpm, const SoundParams&, float kick, int octave = 0);
 }
